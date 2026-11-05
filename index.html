@@ -69,11 +69,11 @@
   .card legend { font-weight: 600; padding: 0 6px; color: var(--primary-dark); }
 
   label { display: block; margin: 10px 0 4px; font-weight: 500; }
-  input[type="text"] {
+  input[type="text"], select {
     width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px;
     font: inherit; background: #fff; color: var(--text);
   }
-  input:focus, .btn:focus-visible, .chip:focus-visible { outline: 3px solid var(--primary); outline-offset: 2px; }
+  input:focus, select:focus, .btn:focus-visible, .chip:focus-visible { outline: 3px solid var(--primary); outline-offset: 2px; }
 
   .hint { color: var(--muted); font-size: 0.92rem; margin: 6px 0; }
 
@@ -194,7 +194,7 @@
 
       <fieldset class="card">
         <legend>조건 → 동작</legend>
-        <p class="hint">"언제(조건) → 무엇을 한다(동작)"로 적어 보세요.</p>
+        <p class="hint">"언제(조건) → 무엇을 한다(동작)"로 적어 보세요. 토양습도 말고도 흔들림·밝기·온도·버튼 등 다양한 조건을 생각해 보세요.</p>
         <div id="step-list" class="step-list"></div>
         <div class="row row-steps">
           <input type="text" id="cond-input" maxlength="60" placeholder="조건 (예: 토양습도가 439보다 작으면)" />
@@ -222,10 +222,22 @@
 
       <fieldset class="card">
         <legend>💾 저장하기</legend>
-        <label for="class-name">반 / 모둠</label>
-        <input type="text" id="class-name" maxlength="20" placeholder="예: 1-3 / 2모둠" autocomplete="off" />
-        <label for="nickname">이름 / 닉네임</label>
-        <input type="text" id="nickname" maxlength="20" placeholder="예: 무순이1" autocomplete="off" />
+        <label for="class-name">반</label>
+        <select id="class-name" autocomplete="off">
+          <option value="">반을 선택하세요</option>
+          <option value="1-1">1-1</option>
+          <option value="1-2">1-2</option>
+          <option value="1-3">1-3</option>
+          <option value="1-4">1-4</option>
+          <option value="1-5">1-5</option>
+          <option value="1-6">1-6</option>
+          <option value="1-7">1-7</option>
+          <option value="1-8">1-8</option>
+        </select>
+        <label for="student-id">학번</label>
+        <input type="text" id="student-id" maxlength="5" inputmode="numeric" placeholder="예: 10401 (1학년 4반 1번)" autocomplete="off" />
+        <label for="nickname">이름</label>
+        <input type="text" id="nickname" maxlength="20" placeholder="예: 홍길동" autocomplete="off" />
         <label for="makecode-url">메이크코드 공유 링크</label>
         <input type="text" id="makecode-url" maxlength="100" placeholder="예: https://makecode.microbit.org/_abc123XYZ" autocomplete="off" />
         <p class="hint">메이크코드 오른쪽 위 <b>공유</b> → <b>프로젝트 게시</b>(링크 만들기) → 나온 링크를 <b>복사</b>해서 붙여 넣어요.</p>
@@ -302,6 +314,8 @@
   // =====================================================================
   const state = {
     currentStep: 1,
+    studentId: "",
+    name: "",
     owner: "",
     className: "",
     makecodeUrl: "",
@@ -317,10 +331,35 @@
     { code: "temperature", label: "온도" },
     { code: "led", label: "LED" },
     { code: "speaker", label: "스피커" },
-    { code: "servo", label: "서보모터" },
-    { code: "camera", label: "카메라 (AI)" },
   ];
   const sensorLabel = (code) => (SENSORS.find((s) => s.code === code) || { label: code }).label;
+
+  // 예시를 다양하게 돌아가며 보여줘요 (토양습도만 쓰지 않도록)
+  const PROBLEM_EXAMPLES = [
+    "주말에 물을 못 줘서 무순이 축 처졌어요",
+    "교실이 어두워서 무순이 잘 못 자라요",
+    "누가 건드려서 화분이 자꾸 흔들려요",
+    "날이 더워 흙이 금방 말라요",
+    "물을 너무 많이 줘서 흙이 질척해요",
+  ];
+  const STEP_EXAMPLES = [
+    { cond: "무순 키트가 흔들리면", act: "경고음을 울린다" },
+    { cond: "주변이 어두워지면", act: "LED를 켠다" },
+    { cond: "온도가 28도보다 높으면", act: "'더워요' 글자를 보여준다" },
+    { cond: "버튼 A를 누르면", act: "물 주는 시간을 알려준다" },
+    { cond: "토양습도가 439보다 작으면", act: "슬픈 표정을 보여준다" },
+  ];
+  const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+  function setProblemPlaceholder() {
+    const el = $("#problem-input");
+    if (el) el.setAttribute("placeholder", "예: " + pick(PROBLEM_EXAMPLES));
+  }
+  function setStepPlaceholders() {
+    const ex = pick(STEP_EXAMPLES);
+    const c = $("#cond-input"), a = $("#act-input");
+    if (c) c.setAttribute("placeholder", "조건 (예: " + ex.cond + ")");
+    if (a) a.setAttribute("placeholder", "동작 (예: " + ex.act + ")");
+  }
 
   const $ = (sel) => document.querySelector(sel);
   const $$ = (sel) => Array.from(document.querySelectorAll(sel));
@@ -335,6 +374,8 @@
       const data = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
       if (!data) return;
       state.currentStep = data.currentStep || 1;
+      state.studentId = data.studentId || "";
+      state.name = data.name || "";
       state.owner = data.owner || "";
       state.className = data.className || "";
       state.makecodeUrl = data.makecodeUrl || "";
@@ -434,6 +475,7 @@
     input.focus();
     renderProblems();
     clearError(1);
+    setProblemPlaceholder();
     persist();
   }
 
@@ -470,6 +512,7 @@
     $("#cond-input").focus();
     renderSteps();
     clearError(2);
+    setStepPlaceholders();
     persist();
   }
 
@@ -508,7 +551,9 @@
   }
 
   function readOwner() {
-    state.owner = $("#nickname").value.trim();
+    state.studentId = $("#student-id").value.trim();
+    state.name = $("#nickname").value.trim();
+    state.owner = (state.studentId ? state.studentId + " " : "") + state.name;
     state.className = $("#class-name").value.trim();
     state.makecodeUrl = $("#makecode-url").value.trim();
     persist();
@@ -518,13 +563,21 @@
     const area = $("#save-status");
     const btn = $("#next-btn");
     readOwner();
-    if (!state.className || !state.owner) {
-      renderMessage(area, "반/모둠과 이름을 모두 적어 주세요.", "error");
+    if (!state.className) {
+      renderMessage(area, "반을 선택해 주세요.", "error");
       return;
     }
-    const bad = checkText(state.className) || checkText(state.owner);
+    if (!state.studentId || !state.name) {
+      renderMessage(area, "학번과 이름을 모두 적어 주세요.", "error");
+      return;
+    }
+    if (!/^\d{5}$/.test(state.studentId)) {
+      renderMessage(area, "학번은 5자리 숫자로 적어 주세요. (예: 10401 = 1학년 4반 1번)", "error");
+      return;
+    }
+    const bad = checkText(state.name);
     if (bad) { renderMessage(area, bad, "error"); return; }
-    if (STAFF_RE.test(state.owner)) {
+    if (STAFF_RE.test(state.name)) {
       renderMessage(area, "이름에는 '선생님', '관리자' 같은 말을 쓸 수 없어요. 내 이름이나 닉네임을 적어 주세요.", "error");
       return;
     }
@@ -606,13 +659,17 @@
     $("#download-json").addEventListener("click", downloadJson);
     $("#next-btn").addEventListener("click", handleNext);
     $("#prev-btn").addEventListener("click", () => goToStep(state.currentStep - 1));
+    $("#student-id").addEventListener("input", readOwner);
     $("#nickname").addEventListener("input", readOwner);
-    $("#class-name").addEventListener("input", readOwner);
+    $("#class-name").addEventListener("change", readOwner);
     $("#makecode-url").addEventListener("input", readOwner);
 
     restore();
-    $("#nickname").value = state.owner;
+    $("#student-id").value = state.studentId;
+    $("#nickname").value = state.name;
     $("#class-name").value = state.className;
+    setProblemPlaceholder();
+    setStepPlaceholders();
     renderProblems();
     renderSteps();
     renderSensors();

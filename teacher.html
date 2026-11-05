@@ -154,6 +154,13 @@
     const p = (n) => String(n).padStart(2, "0");
     return `${d.getMonth() + 1}/${d.getDate()} ${p(d.getHours())}:${p(d.getMinutes())}`;
   }
+  function tsMillis(ts) {
+    if (!ts) return 0;
+    if (typeof ts.toMillis === "function") return ts.toMillis();
+    if (typeof ts.seconds === "number") return ts.seconds * 1000;
+    const d = new Date(ts);
+    return isNaN(d.getTime()) ? 0 : d.getTime();
+  }
   function safeMakecode(url) {
     return url && MAKECODE_RE.test(url) ? url : "";
   }
@@ -244,10 +251,10 @@
   async function load() {
     showMsg("불러오는 중…");
     try {
-      const snap = await db.collection(COLLECTION).orderBy("createdAt", "asc").get();
+      const snap = await db.collection(COLLECTION).orderBy("createdAt", "desc").get();
       rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      rows.sort((a, b) => (a.className || "").localeCompare(b.className || "", "ko", { numeric: true })
-        || (a.owner || "").localeCompare(b.owner || "", "ko"));
+      // 제출 시간 최신순 (최신이 맨 위)
+      rows.sort((a, b) => tsMillis(b.createdAt) - tsMillis(a.createdAt));
       fillClassFilter();
       showMsg("");
       $("#toolbar").hidden = false;

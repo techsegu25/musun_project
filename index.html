@@ -226,6 +226,9 @@
         <input type="text" id="class-name" maxlength="20" placeholder="예: 1-3 / 2모둠" autocomplete="off" />
         <label for="nickname">이름 / 닉네임</label>
         <input type="text" id="nickname" maxlength="20" placeholder="예: 무순이1" autocomplete="off" />
+        <label for="makecode-url">메이크코드 공유 링크</label>
+        <input type="text" id="makecode-url" maxlength="100" placeholder="예: https://makecode.microbit.org/_abc123XYZ" autocomplete="off" />
+        <p class="hint">메이크코드 오른쪽 위 <b>공유</b> → <b>프로젝트 게시</b>(링크 만들기) → 나온 링크를 <b>복사</b>해서 붙여 넣어요.</p>
         <p class="hint">아래 "저장 / 완료"를 누르면 선생님께 저장돼요. 저장이 안 되면 "파일로 저장"을 쓰세요.<br>전화번호 같은 개인정보와 나쁜 말은 저장되지 않아요.</p>
         <button type="button" id="download-json" class="btn btn-ghost">⬇ 파일로 저장</button>
         <div id="save-status" class="status" aria-live="polite"></div>
@@ -273,6 +276,7 @@
         const ref = db.collection(FIRESTORE_COLLECTION).doc();
         await ref.set({
           className: state.className || "",
+          makecodeUrl: state.makecodeUrl || "",
           owner: state.owner,
           problem: {
             candidates: state.problem.candidates,
@@ -300,6 +304,7 @@
     currentStep: 1,
     owner: "",
     className: "",
+    makecodeUrl: "",
     problem: { candidates: [], selected: "" },
     design: { steps: [], sensors: [] },
   };
@@ -332,6 +337,7 @@
       state.currentStep = data.currentStep || 1;
       state.owner = data.owner || "";
       state.className = data.className || "";
+      state.makecodeUrl = data.makecodeUrl || "";
       state.problem = { candidates: [], selected: "", ...data.problem };
       state.design = { steps: [], sensors: [], ...data.design };
     } catch (e) { /* 손상된 데이터 무시 */ }
@@ -355,6 +361,7 @@
     if (BAD_RE.test(text)) return "친구와 선생님이 함께 보는 곳이에요. 바른 말로 고쳐 주세요.";
     return "";
   }
+  const MAKECODE_RE = /^https:\/\/makecode\.microbit\.org\/(_[A-Za-z0-9]{6,20}|S[0-9]{5}-[0-9]{5}-[0-9]{5}-[0-9]{5})$/;
   const SAVE_COOLDOWN_MS = 30000;
   let lastSavedAt = 0;
   let resaveArmed = false;
@@ -497,11 +504,13 @@
       <div class="summary-item"><span class="k">문제</span><div>${escapeHtml(state.problem.selected || "선택 안 됨")}</div></div>
       <div class="summary-item"><span class="k">조건 → 동작</span>${stepsHtml}</div>
       <div class="summary-item"><span class="k">센서 / 부품</span><div>${sensorsHtml}</div></div>`;
+    $("#makecode-url").value = state.makecodeUrl;
   }
 
   function readOwner() {
     state.owner = $("#nickname").value.trim();
     state.className = $("#class-name").value.trim();
+    state.makecodeUrl = $("#makecode-url").value.trim();
     persist();
   }
 
@@ -527,6 +536,10 @@
     if (lastSavedAt && !resaveArmed) {
       resaveArmed = true;
       renderMessage(area, "이미 저장했어요. 내용을 고쳤다면 '저장 / 완료'를 한 번 더 누르면 새로 저장돼요.", "error");
+      return;
+    }
+    if (state.makecodeUrl && !MAKECODE_RE.test(state.makecodeUrl)) {
+      renderMessage(area, "메이크코드 링크가 올바르지 않아요. 공유 → 프로젝트 게시로 만든 링크(https://makecode.microbit.org/_…)를 붙여 넣어 주세요.", "error");
       return;
     }
     if (typeof window.saveProject !== "function") {
@@ -595,6 +608,7 @@
     $("#prev-btn").addEventListener("click", () => goToStep(state.currentStep - 1));
     $("#nickname").addEventListener("input", readOwner);
     $("#class-name").addEventListener("input", readOwner);
+    $("#makecode-url").addEventListener("input", readOwner);
 
     restore();
     $("#nickname").value = state.owner;

@@ -241,8 +241,9 @@
         <label for="makecode-url">메이크코드 공유 링크</label>
         <input type="text" id="makecode-url" maxlength="100" placeholder="예: https://makecode.microbit.org/_abc123XYZ" autocomplete="off" />
         <p class="hint">메이크코드 오른쪽 위 <b>공유</b> → <b>프로젝트 게시</b>(링크 만들기) → 나온 링크를 <b>복사</b>해서 붙여 넣어요.</p>
-        <p class="hint">아래 "저장 / 완료"를 누르면 선생님께 저장돼요. 저장이 안 되면 "파일로 저장"을 쓰세요.<br>전화번호 같은 개인정보와 나쁜 말은 저장되지 않아요.</p>
-        <button type="button" id="download-json" class="btn btn-ghost">⬇ 파일로 저장</button>
+        <p class="hint">아래 "저장 / 완료"를 누르면 선생님께 저장돼요.<br>전화번호 같은 개인정보와 나쁜 말은 저장되지 않아요.</p>
+        <p class="hint" id="download-hint" hidden>온라인 저장이 안 될 때만 아래 "파일로 저장"을 쓰세요.</p>
+        <button type="button" id="download-json" class="btn btn-ghost" hidden>⬇ 파일로 저장</button>
         <div id="save-status" class="status" aria-live="polite"></div>
       </fieldset>
     </section>
@@ -559,6 +560,11 @@
     persist();
   }
 
+  function showDownloadFallback(show) {
+    $("#download-json").hidden = !show;
+    $("#download-hint").hidden = !show;
+  }
+
   async function saveOnline() {
     const area = $("#save-status");
     const btn = $("#next-btn");
@@ -601,6 +607,7 @@
     }
     if (typeof window.saveProject !== "function") {
       renderMessage(area, "아직 온라인 저장이 연결되지 않았어요. '파일로 저장'을 눌러 주세요.", "error");
+      showDownloadFallback(true);
       return;
     }
     btn.disabled = true;
@@ -610,6 +617,7 @@
       lastSavedAt = Date.now();
       resaveArmed = false;
       renderMessage(area, "저장되었어요! 수고했어요. 🌱", "ok");
+      showDownloadFallback(false);
     } catch (err) {
       const code = (err && err.code) || "";
       const msg = code === "permission-denied"
@@ -618,6 +626,7 @@
           ? "인터넷 연결을 확인하고 다시 눌러 주세요. (또는 '파일로 저장')"
           : "저장에 실패했어요. 다시 누르거나 '파일로 저장'을 쓰세요.";
       renderMessage(area, msg, "error");
+      showDownloadFallback(true);
       console.error(err);
     } finally {
       btn.disabled = false;

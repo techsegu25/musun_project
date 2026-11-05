@@ -581,6 +581,10 @@
       renderMessage(area, "이름에는 '선생님', '관리자' 같은 말을 쓸 수 없어요. 내 이름이나 닉네임을 적어 주세요.", "error");
       return;
     }
+    if (state.owner.length > 20) {
+      renderMessage(area, "학번과 이름을 합친 길이가 너무 길어요. 이름을 조금 줄여 주세요.", "error");
+      return;
+    }
     const wait = SAVE_COOLDOWN_MS - (Date.now() - lastSavedAt);
     if (lastSavedAt && wait > 0) {
       renderMessage(area, `방금 저장했어요. ${Math.ceil(wait / 1000)}초 뒤에 다시 저장할 수 있어요.`, "error");

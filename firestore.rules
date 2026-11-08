@@ -1,60 +1,149 @@
 rules_version = '2';
 // ============================================================
-// 무순 수행평가 Firestore 보안 규칙 (참고용)
+// 무순 프로젝트 Firestore 보안 규칙 (최종)
 // Firebase 콘솔 → Firestore Database → 규칙(Rules)에 붙여넣고 "게시" 하세요.
-// ★ 아래 TEACHER_EMAILS 를 선생님 구글 계정으로 바꾸세요.
-//   기존 mock_designs 규칙이 콘솔에 따로 있다면 함께 보존하세요.
+// ★ isTeacher() 안의 이메일을 선생님 구글 계정으로 바꾸세요.
+//  - mock_designs       : 연습/모의용 (그대로 유지)
+//  - assessment_designs : 실제 수행평가 최종 제출 (소감 포함, 센서는 규칙 안)
+//  - assessment_drafts  : 온라인 임시저장(초안), 문서 id = "반_학번"
+//  - settings/assessment: 교사가 켜고 끄는 '이어하기 허용' 스위치
 // ============================================================
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // ---------- 공통 검사 ----------
+    // 길이가 정해진 범위 안의 글자인가 (빈칸, 아주 긴 글 막기)
+    function isText(v, minLen, maxLen) {
+      return v is string && v.size() >= minLen && v.size() <= maxLen;
+    }
+    // 휴대폰 번호(개인정보) 막기
+    function noPhone(v) {
+      return !v.matches('.*01[016789][-. ]?[0-9]{3,4}[-. ]?[0-9]{4}.*');
+    }
+    // 자주 나오는 욕설 막기
+    function noBadWords(v) {
+      return !v.lower().matches('.*(시발|씨발|ㅅㅂ|ㅆㅂ|병신|ㅂㅅ|개새|존나|ㅈㄴ|미친놈|미친년|꺼져|닥쳐).*');
+    }
+    // 선생님·관리자 사칭 막기
+    function notStaff(v) {
+      return !v.lower().matches('.*(선생님|교사|관리자|admin).*');
+    }
+    function cleanText(v, minLen, maxLen) {
+      return isText(v, minLen, maxLen) && noPhone(v) && noBadWords(v);
+    }
+
+    // 선생님 계정 (구글 로그인). 다른 계정을 쓰면 이 주소를 바꾸세요.
     function isTeacher() {
       return request.auth != null
-        && request.auth.token.email in [
-             "techsegu25@gmail.com"   // ← 선생님 구글 계정 이메일로 바꾸세요
-           ];
+          && request.auth.token.email == 'techsegu25@gmail.com'
+          && request.auth.token.email_verified == true;
+    }
+    // 메이크코드 공유 링크 (비어 있어도 됨)
+    function validMakecode(d) {
+      return !('makecodeUrl' in d)
+          || (d.makecodeUrl is string
+              && (d.makecodeUrl == ''
+                  || d.makecodeUrl.matches('^https://makecode[.]microbit[.]org/(_[A-Za-z0-9]{6,20}|S[0-9]{5}-[0-9]{5}-[0-9]{5}-[0-9]{5})$')));
     }
 
-    // ---- (연습/모의용) 기존 컬렉션 ----
+    // ---------- 모의 설계 한 건이 올바른가 ----------
+    function validDesign(d) {
+      return d.keys().hasAll(['className', 'owner', 'problem', 'design', 'createdAt'])
+          && d.keys().hasOnly(['className', 'owner', 'makecodeUrl', 'problem', 'design', 'createdAt'])
+          && validMakecode(d)
+          // 반·이름: 1~20자, 개인정보·욕설·사칭 금지
+          && cleanText(d.className, 1, 20)
+          && cleanText(d.owner, 1, 20)
+          && notStaff(d.owner)
+          // 문제: 1~10개, 고른 문제는 2~100자이고 목록 안에 있어야 함
+          && d.problem is map
+          && d.problem.keys().hasOnly(['candidates', 'selected'])
+          && d.problem.candidates is list
+          && d.problem.candidates.size() >= 1
+          && d.problem.candidates.size() <= 10
+          && cleanText(d.problem.selected, 2, 100)
+          && d.problem.selected in d.problem.candidates
+          // 설계: 조건→동작 1~10개, 센서 0~7개
+          && d.design is map
+          && d.design.keys().hasOnly(['steps', 'sensors'])
+          && d.design.steps is list
+          && d.design.steps.size() >= 1
+          && d.design.steps.size() <= 10
+          && d.design.sensors is list
+          && d.design.sensors.size() <= 7
+          // 저장 시각은 서버 시간만 (날짜 조작 막기)
+          && d.createdAt == request.time;
+    }
+
+    // ---------- 실제 수행평가 한 건이 올바른가 (소감 포함, 센서는 규칙 안) ----------
+    function validAssessment(d) {
+      return d.keys().hasAll(['className', 'owner', 'reflection', 'problem', 'design', 'createdAt'])
+          && d.keys().hasOnly(['className', 'owner', 'makecodeUrl', 'reflection', 'problem', 'design', 'createdAt'])
+          && validMakecode(d)
+          && cleanText(d.className, 1, 20)
+          && cleanText(d.owner, 1, 20)
+          && notStaff(d.owner)
+          // 소감: 1~300자, 개인정보·욕설 금지
+          && cleanText(d.reflection, 1, 300)
+          // 문제: 2~10개, 고른 문제 2~100자이고 목록 안에 있어야 함
+          && d.problem is map
+          && d.problem.keys().hasOnly(['candidates', 'selected'])
+          && d.problem.candidates is list
+          && d.problem.candidates.size() >= 2
+          && d.problem.candidates.size() <= 10
+          && cleanText(d.problem.selected, 2, 100)
+          && d.problem.selected in d.problem.candidates
+          // 설계: 조건→동작 2~10개 (센서는 각 규칙 안에 들어감 → design엔 steps만)
+          && d.design is map
+          && d.design.keys().hasOnly(['steps'])
+          && d.design.steps is list
+          && d.design.steps.size() >= 2
+          && d.design.steps.size() <= 10
+          // 저장 시각은 서버 시간만 (날짜 조작 막기)
+          && d.createdAt == request.time;
+    }
+
+    // ---------- 무순 모의 설계 ----------
     match /mock_designs/{docId} {
+      // 자동 생성 문서 번호(20자)로만 저장: 남의 문서 번호를 정해 덮어쓰기 막기
+      allow create: if docId.matches('^[A-Za-z0-9]{20}$')
+                    && validDesign(request.resource.data);
+      // 학생은 다른 사람 설계를 보거나, 고치거나, 지울 수 없음
+      // 선생님 계정만 모아 보기(teacher.html)에서 읽을 수 있음
       allow read: if isTeacher();
-      allow create: if true;         // 기존 규칙이 더 엄격하면 그대로 두세요
       allow update, delete: if false;
     }
 
-    // ---- (실제 수행평가) 최종 제출 ----
+    // ---------- 무순 실제 수행평가 설계 (최종 제출) ----------
     match /assessment_designs/{docId} {
+      // 자동 생성 문서 번호(20자)로만 저장: 남의 문서 번호를 정해 덮어쓰기 막기
+      allow create: if docId.matches('^[A-Za-z0-9]{20}$')
+                    && validAssessment(request.resource.data);
+      // 선생님 계정만 모아 보기(assessment-teacher.html)에서 읽을 수 있음
       allow read: if isTeacher();
-      allow create: if
-        request.resource.data.owner is string
-        && request.resource.data.owner.size() <= 20
-        && request.resource.data.className is string
-        && request.resource.data.className.size() <= 10
-        && request.resource.data.makecodeUrl is string
-        && request.resource.data.makecodeUrl.size() <= 100
-        && request.resource.data.reflection is string
-        && request.resource.data.reflection.size() <= 300;
       allow update, delete: if false;
     }
 
-    // ---- (실제 수행평가) 온라인 임시저장 = 초안 ----
-    //  문서 id = "반_학번"  (예: 1-4_10401)
+    // ---------- 온라인 임시저장(초안). 문서 id = "반_학번" (예: 1-4_10401) ----------
     match /assessment_drafts/{docId} {
-      // 학생은 자기 초안을 만들고 덮어쓸 수 있음
-      allow create, update: if
-        request.resource.data.className is string
-        && request.resource.data.studentId is string;
-      // 초안 '읽기(이어서 하기)'는 교사가 허용을 켰을 때만 가능
-      allow read: if
-        exists(/databases/$(database)/documents/settings/assessment)
-        && get(/databases/$(database)/documents/settings/assessment).data.resumeEnabled == true;
+      // 학생이 자기 초안을 만들고 덮어쓰기 (작업 중이라 느슨하게 검사)
+      allow create, update: if isText(request.resource.data.className, 1, 20)
+                            && isText(request.resource.data.studentId, 1, 5);
+      // '이어서 하기(읽기)'는 교사가 허용을 켰을 때만
+      allow read: if exists(/databases/$(database)/documents/settings/assessment)
+                  && get(/databases/$(database)/documents/settings/assessment).data.resumeEnabled == true;
       allow delete: if false;
     }
 
-    // ---- 교사가 켜고 끄는 '이어하기 허용' 스위치 ----
+    // ---------- 교사가 켜고 끄는 '이어하기 허용' 스위치 ----------
     match /settings/assessment {
-      allow read: if true;        // 학생이 허용 여부를 확인(버튼 활성화)
-      allow write: if isTeacher(); // 값 변경은 교사만
+      allow read: if true;         // 학생이 허용 여부 확인(버튼 활성화)
+      allow write: if isTeacher();  // 값 변경은 교사만
+    }
+
+    // 그 밖의 모든 문서는 막아 둠
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }

@@ -1,0 +1,694 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>무순 관리 에이전트 수행평가</title>
+  <!--
+    === 무순 관리 에이전트 모의 설계 (단일 HTML) ===
+    - 서버 없이 더블클릭으로 열 수 있습니다.
+    - 입력한 내용은 이 브라우저(localStorage)에 자동 저장됩니다.
+    - 온라인 저장(Firebase Firestore)은 아래 [설정]에 Firebase 설정값을 넣으면 켜집니다.
+      설정값이 비어 있으면 '파일로 저장'만 동작합니다.
+  -->
+  <style>
+  :root {
+    --bg: #f4faf2;
+    --surface: #ffffff;
+    --text: #1f2d1a;
+    --muted: #5d6b55;
+    --primary: #2e7d32;
+    --primary-dark: #1b5e20;
+    --primary-light: #e3f2e1;
+    --border: #cfe0ca;
+    --danger: #c0392b;
+    --radius: 12px;
+    --shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+
+  body {
+    margin: 0;
+    font-family: "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 17px;
+    line-height: 1.6;
+  }
+
+  .app-header { background: var(--primary); color: #fff; padding: 16px; text-align: center; }
+  .app-header h1 { margin: 0; font-size: 1.4rem; }
+  .app-header p { margin: 4px 0 0; opacity: 0.9; font-size: 0.95rem; }
+
+  /* 진행 단계 */
+  .steps { background: var(--surface); border-bottom: 1px solid var(--border); }
+  .steps ol {
+    display: flex; justify-content: center; gap: 8px; flex-wrap: wrap;
+    list-style: none; margin: 0; padding: 12px 16px;
+  }
+  .step {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 14px; border-radius: 999px; color: var(--muted); background: #eef3ec;
+  }
+  .step.is-active { color: #fff; background: var(--primary); font-weight: 600; }
+  .step-num {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 24px; height: 24px; border-radius: 50%; background: rgba(0, 0, 0, 0.12); font-size: 0.9rem;
+  }
+  .step.is-active .step-num { background: rgba(255, 255, 255, 0.3); }
+
+  /* 본문 */
+  .content { max-width: 760px; margin: 0 auto; padding: 20px 16px 100px; }
+  .view h2 { font-size: 1.25rem; }
+
+  .card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+    box-shadow: var(--shadow); padding: 16px; margin: 0 0 16px;
+  }
+  .card legend { font-weight: 600; padding: 0 6px; color: var(--primary-dark); }
+
+  label { display: block; margin: 10px 0 4px; font-weight: 500; }
+  input[type="text"], select {
+    width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px;
+    font: inherit; background: #fff; color: var(--text);
+  }
+  input:focus, select:focus, .btn:focus-visible, .chip:focus-visible { outline: 3px solid var(--primary); outline-offset: 2px; }
+
+  .hint { color: var(--muted); font-size: 0.92rem; margin: 6px 0; }
+
+  .row { display: flex; gap: 8px; align-items: flex-start; margin-top: 8px; flex-wrap: wrap; }
+  .row input { flex: 1 1 200px; }
+  .row-steps input { flex: 1 1 160px; }
+
+  /* 버튼 */
+  .btn {
+    display: inline-block; padding: 10px 18px; border: none; border-radius: 8px;
+    font: inherit; font-weight: 600; cursor: pointer; text-decoration: none; text-align: center;
+  }
+  .btn:disabled { opacity: 0.6; cursor: default; }
+  .btn-primary { background: var(--primary); color: #fff; }
+  .btn-primary:hover { background: var(--primary-dark); }
+  .btn-secondary { background: var(--primary-light); color: var(--primary-dark); }
+  .btn-secondary:hover { background: #d3e8cf; }
+  .btn-ghost { background: transparent; color: var(--muted); border: 1px solid var(--border); }
+  .btn-danger-link { background: none; border: none; color: var(--danger); cursor: pointer; font: inherit; padding: 0 4px; }
+
+  /* 문제 목록 + 선택 */
+  .choices { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+  .choice {
+    display: flex; align-items: center; gap: 8px; padding: 10px 12px;
+    border: 1px solid var(--border); border-radius: 8px; cursor: pointer; background: #fbfdfa;
+  }
+  .choice span { flex: 1; }
+  .choice:has(input:checked) { border-color: var(--primary); background: var(--primary-light); }
+
+  /* 조건 → 동작 */
+  .step-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; }
+  .step-item {
+    display: flex; align-items: center; gap: 8px; padding: 10px 12px;
+    border: 1px solid var(--border); border-radius: 8px; background: #fbfdfa;
+  }
+  .step-item .order { font-weight: 700; color: var(--primary-dark); min-width: 20px; }
+  .step-item .cond { color: var(--muted); }
+  .step-item .text { flex: 1; }
+
+  /* 센서 칩 */
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px;
+    border: 1px solid var(--border); border-radius: 999px; background: #fff; cursor: pointer; font: inherit;
+  }
+  .chip[aria-pressed="true"] { background: var(--primary); color: #fff; border-color: var(--primary); }
+
+  /* 요약 */
+  .summary-item { margin-bottom: 10px; }
+  .summary-item .k { font-weight: 600; color: var(--primary-dark); }
+  .summary-item ul { margin: 4px 0; padding-left: 18px; }
+
+  .selected-problem { background: var(--primary-light); padding: 10px 14px; border-radius: 8px; }
+
+  .status {
+    margin-top: 12px; padding: 12px 14px; border-radius: 8px; background: #fff; border: 1px solid var(--border);
+  }
+  .status:empty { display: none; }
+  .status.is-loading { color: var(--muted); font-style: italic; }
+  .status.is-error { color: var(--danger); border-color: #e8bdb6; background: #fdf3f1; }
+  .status.is-ok { border-left: 4px solid var(--primary); }
+
+  .form-error { color: var(--danger); font-weight: 600; }
+
+  /* 하단 이동 버튼 */
+  .app-footer {
+    position: fixed; bottom: 0; left: 0; right: 0; display: flex; justify-content: space-between; gap: 8px;
+    padding: 12px 16px; background: var(--surface); border-top: 1px solid var(--border);
+    box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.05);
+  }
+  .app-footer .btn { min-width: 110px; }
+  .app-footer #next-btn { margin-left: auto; }
+
+  @media (max-width: 640px) {
+    body { font-size: 16px; }
+    .step-label { display: none; }
+    .app-footer .btn { min-width: 90px; }
+  }
+  </style>
+</head>
+<body>
+  <header class="app-header">
+    <h1>🌱 무순 관리 에이전트 수행평가</h1>
+    <p>문제 고르기 → 조건과 동작 정하기 → 저장하기</p>
+  </header>
+
+  <nav class="steps" aria-label="진행 단계">
+    <ol>
+      <li data-step="1" class="step is-active"><span class="step-num">1</span><span class="step-label">문제</span></li>
+      <li data-step="2" class="step"><span class="step-num">2</span><span class="step-label">설계</span></li>
+      <li data-step="3" class="step"><span class="step-num">3</span><span class="step-label">저장</span></li>
+    </ol>
+  </nav>
+
+  <main class="content">
+    <!-- ===== 1. 문제 ===== -->
+    <section id="view-1" class="view" aria-labelledby="view-1-title">
+      <h2 id="view-1-title">무순을 기르면서 어떤 문제가 있었나요?</h2>
+
+      <fieldset class="card">
+        <legend>내가 발견한 문제</legend>
+        <p class="hint">패들렛 관찰 기록을 보고 적어 보세요. 여러 개 적고, 그중 해결할 문제 하나를 골라요.</p>
+        <div class="row">
+          <input type="text" id="problem-input" maxlength="100" placeholder="예: 주말에 물을 못 줘서 무순이 축 처졌어요" />
+          <button type="button" id="add-problem" class="btn btn-secondary">+ 추가</button>
+        </div>
+        <div id="problem-choices" class="choices" role="radiogroup" aria-label="해결할 문제 선택"></div>
+        <p id="problem-empty" class="hint">아직 적은 문제가 없어요.</p>
+      </fieldset>
+
+      <p class="form-error" id="error-1" role="alert" hidden></p>
+    </section>
+
+    <!-- ===== 2. 설계 ===== -->
+    <section id="view-2" class="view" aria-labelledby="view-2-title" hidden>
+      <h2 id="view-2-title">어떻게 해결할지 설계해요</h2>
+      <p class="selected-problem">선택한 문제: <strong id="selected-problem-text">—</strong></p>
+
+      <fieldset class="card">
+        <legend>조건 → 동작</legend>
+        <p class="hint">"언제(조건) → 무엇을 한다(동작)"로 적어 보세요. 토양습도 말고도 흔들림·밝기·온도·버튼 등 다양한 조건을 생각해 보세요.</p>
+        <div id="step-list" class="step-list"></div>
+        <div class="row row-steps">
+          <input type="text" id="cond-input" maxlength="60" placeholder="조건 (예: 토양습도가 439보다 작으면)" />
+          <input type="text" id="act-input" maxlength="60" placeholder="동작 (예: 슬픈 표정과 소리로 알린다)" />
+          <button type="button" id="add-step" class="btn btn-secondary">+ 추가</button>
+        </div>
+      </fieldset>
+
+      <fieldset class="card">
+        <legend>사용할 센서 / 부품</legend>
+        <div id="sensor-list" class="chips" role="group" aria-label="센서 및 부품 선택"></div>
+      </fieldset>
+
+      <p class="form-error" id="error-2" role="alert" hidden></p>
+    </section>
+
+    <!-- ===== 3. 저장 ===== -->
+    <section id="view-3" class="view" aria-labelledby="view-3-title" hidden>
+      <h2 id="view-3-title">내 설계를 확인하고 저장해요</h2>
+
+      <div class="card" aria-label="내 설계 요약">
+        <div id="summary-content"></div>
+        <a class="btn btn-secondary" href="https://makecode.microbit.org/" target="_blank" rel="noopener noreferrer">메이크코드 열기 ↗</a>
+      </div>
+
+      <fieldset class="card">
+        <legend>💾 저장하기</legend>
+        <label for="class-name">반</label>
+        <select id="class-name" autocomplete="off">
+          <option value="">반을 선택하세요</option>
+          <option value="1-1">1-1</option>
+          <option value="1-2">1-2</option>
+          <option value="1-3">1-3</option>
+          <option value="1-4">1-4</option>
+          <option value="1-5">1-5</option>
+          <option value="1-6">1-6</option>
+          <option value="1-7">1-7</option>
+          <option value="1-8">1-8</option>
+        </select>
+        <label for="student-id">학번</label>
+        <input type="text" id="student-id" maxlength="5" inputmode="numeric" placeholder="예: 10401 (1학년 4반 1번)" autocomplete="off" />
+        <label for="nickname">이름</label>
+        <input type="text" id="nickname" maxlength="20" placeholder="예: 홍길동" autocomplete="off" />
+        <label for="makecode-url">메이크코드 공유 링크</label>
+        <input type="text" id="makecode-url" maxlength="100" placeholder="예: https://makecode.microbit.org/_abc123XYZ" autocomplete="off" />
+        <p class="hint">메이크코드 오른쪽 위 <b>공유</b> → <b>프로젝트 게시</b>(링크 만들기) → 나온 링크를 <b>복사</b>해서 붙여 넣어요.</p>
+        <p class="hint">아래 "저장 / 완료"를 누르면 선생님께 저장돼요.<br>전화번호 같은 개인정보와 나쁜 말은 저장되지 않아요.</p>
+        <p class="hint" id="download-hint" hidden>온라인 저장이 안 될 때만 아래 "파일로 저장"을 쓰세요.</p>
+        <button type="button" id="download-json" class="btn btn-ghost" hidden>⬇ 파일로 저장</button>
+        <div id="save-status" class="status" aria-live="polite"></div>
+      </fieldset>
+    </section>
+  </main>
+
+  <footer class="app-footer">
+    <button type="button" id="prev-btn" class="btn btn-ghost" hidden>← 이전</button>
+    <button type="button" id="next-btn" class="btn btn-primary">다음 →</button>
+  </footer>
+
+  <!-- Firebase SDK (compat, CDN). 인터넷이 될 때만 불러와집니다. -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+
+  <script>
+  // =====================================================================
+  // [설정] Firebase — 파이어베이스 콘솔 > 프로젝트 설정 > 내 앱(웹)의 firebaseConfig 값을 넣으세요.
+  // 비어 있으면 온라인 저장이 꺼지고 '파일로 저장'만 동작합니다.
+  // =====================================================================
+  window.FIREBASE_CONFIG = {
+    apiKey: "AIzaSyAVdx3F31F2gG7PgU_TyX8E426RFTzjdWQ",
+    authDomain: "digit-project-710a6.firebaseapp.com",
+    projectId: "digit-project-710a6",
+    storageBucket: "digit-project-710a6.firebasestorage.app",
+    messagingSenderId: "167116197442",
+    appId: "1:167116197442:web:f2e2da9b25b2ef5ec027db",
+  };
+  const FIRESTORE_COLLECTION = "assessment_designs"; // 저장될 컬렉션 이름 (수행평가 전용)
+  </script>
+
+  <script>
+  // =====================================================================
+  // Firestore 저장 모듈
+  // =====================================================================
+  (function () {
+    const cfg = window.FIREBASE_CONFIG || {};
+    if (!cfg.projectId || !cfg.apiKey) return;           // 아직 연결 전
+    if (!window.firebase) return;                         // 인터넷 없음 등
+    try {
+      firebase.initializeApp(cfg);
+      const db = firebase.firestore();
+      window.saveProject = async function (state) {
+        const ref = db.collection(FIRESTORE_COLLECTION).doc();
+        await ref.set({
+          className: state.className || "",
+          makecodeUrl: state.makecodeUrl || "",
+          owner: state.owner,
+          problem: {
+            candidates: state.problem.candidates,
+            selected: state.problem.selected,
+          },
+          design: {
+            steps: state.design.steps,
+            sensors: state.design.sensors,
+          },
+          createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+        });
+        return ref.id;
+      };
+    } catch (e) {
+      console.warn("Firebase 초기화 실패:", e);
+    }
+  })();
+  </script>
+
+  <script>
+  // =====================================================================
+  // 메인 UI 로직 (상태는 메모리 + localStorage 자동 저장)
+  // =====================================================================
+  const state = {
+    currentStep: 1,
+    studentId: "",
+    name: "",
+    owner: "",
+    className: "",
+    makecodeUrl: "",
+    problem: { candidates: [], selected: "" },
+    design: { steps: [], sensors: [] },
+  };
+  const STORAGE_KEY = "musun_assessment_state";
+  const TOTAL_STEPS = 3;
+
+  const SENSORS = [
+    { code: "soilMoisture", label: "토양습도" },
+    { code: "light", label: "조도" },
+    { code: "temperature", label: "온도" },
+    { code: "led", label: "LED" },
+    { code: "speaker", label: "스피커" },
+  ];
+  const sensorLabel = (code) => (SENSORS.find((s) => s.code === code) || { label: code }).label;
+
+  // 예시를 다양하게 돌아가며 보여줘요 (토양습도만 쓰지 않도록)
+  const PROBLEM_EXAMPLES = [
+    "주말에 물을 못 줘서 무순이 축 처졌어요",
+    "교실이 어두워서 무순이 잘 못 자라요",
+    "누가 건드려서 화분이 자꾸 흔들려요",
+    "날이 더워 흙이 금방 말라요",
+    "물을 너무 많이 줘서 흙이 질척해요",
+  ];
+  const STEP_EXAMPLES = [
+    { cond: "무순 키트가 흔들리면", act: "경고음을 울린다" },
+    { cond: "주변이 어두워지면", act: "LED를 켠다" },
+    { cond: "온도가 28도보다 높으면", act: "'더워요' 글자를 보여준다" },
+    { cond: "버튼 A를 누르면", act: "물 주는 시간을 알려준다" },
+    { cond: "토양습도가 439보다 작으면", act: "슬픈 표정을 보여준다" },
+  ];
+  const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+  function setProblemPlaceholder() {
+    const el = $("#problem-input");
+    if (el) el.setAttribute("placeholder", "예: " + pick(PROBLEM_EXAMPLES));
+  }
+  function setStepPlaceholders() {
+    const ex = pick(STEP_EXAMPLES);
+    const c = $("#cond-input"), a = $("#act-input");
+    if (c) c.setAttribute("placeholder", "조건 (예: " + ex.cond + ")");
+    if (a) a.setAttribute("placeholder", "동작 (예: " + ex.act + ")");
+  }
+
+  const $ = (sel) => document.querySelector(sel);
+  const $$ = (sel) => Array.from(document.querySelectorAll(sel));
+
+  function persist() {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    } catch (e) { /* 저장 불가 환경에서도 동작 */ }
+  }
+  function restore() {
+    try {
+      const data = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
+      if (!data) return;
+      state.currentStep = data.currentStep || 1;
+      state.studentId = data.studentId || "";
+      state.name = data.name || "";
+      state.owner = data.owner || "";
+      state.className = data.className || "";
+      state.makecodeUrl = data.makecodeUrl || "";
+      state.problem = { candidates: [], selected: "", ...data.problem };
+      state.design = { steps: [], sensors: [], ...data.design };
+    } catch (e) { /* 손상된 데이터 무시 */ }
+  }
+
+  function showError(step, msg) { const el = $(`#error-${step}`); el.textContent = msg; el.hidden = false; }
+  function clearError(step) { const el = $(`#error-${step}`); el.hidden = true; el.textContent = ""; }
+
+  function renderMessage(el, message, type) {
+    el.className = "status" + (type ? ` is-${type}` : "");
+    el.textContent = message;
+  }
+
+  // ---------- 입력 검사 (보안 규칙과 같은 기준) ----------
+  const LIMITS = { problems: 10, steps: 10 };
+  const PHONE_RE = /01[016789][-. ]?\d{3,4}[-. ]?\d{4}/;
+  const BAD_RE = /(시발|씨발|ㅅㅂ|ㅆㅂ|병신|ㅂㅅ|개새|존나|ㅈㄴ|미친놈|미친년|꺼져|닥쳐)/i;
+  const STAFF_RE = /(선생님|교사|관리자|admin)/i;
+  function checkText(text) {
+    if (PHONE_RE.test(text)) return "전화번호 같은 개인정보는 적을 수 없어요.";
+    if (BAD_RE.test(text)) return "친구와 선생님이 함께 보는 곳이에요. 바른 말로 고쳐 주세요.";
+    return "";
+  }
+  const MAKECODE_RE = /^https:\/\/makecode\.microbit\.org\/(_[A-Za-z0-9]{6,20}|S[0-9]{5}-[0-9]{5}-[0-9]{5}-[0-9]{5})$/;
+  const SAVE_COOLDOWN_MS = 30000;
+  let lastSavedAt = 0;
+  let resaveArmed = false;
+
+  function escapeHtml(str) {
+    return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  }
+
+  // ---------- 단계 이동 ----------
+  function goToStep(step) {
+    if (step < 1 || step > TOTAL_STEPS) return;
+    state.currentStep = step;
+    $$(".view").forEach((v) => { v.hidden = v.id !== `view-${step}`; });
+    $$(".steps .step").forEach((li) => li.classList.toggle("is-active", Number(li.dataset.step) === step));
+    $("#prev-btn").hidden = step === 1;
+    $("#next-btn").textContent = step === TOTAL_STEPS ? "저장 / 완료" : "다음 →";
+    if (step === 2) $("#selected-problem-text").textContent = state.problem.selected || "—";
+    if (step === 3) renderSummary();
+    persist();
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  // ---------- 1. 문제 ----------
+  function renderProblems() {
+    const wrap = $("#problem-choices");
+    wrap.innerHTML = "";
+    state.problem.candidates.forEach((text, i) => {
+      const label = document.createElement("label");
+      label.className = "choice";
+      const radio = document.createElement("input");
+      radio.type = "radio";
+      radio.name = "selected-problem";
+      radio.id = `choice-${i}`;
+      radio.checked = state.problem.selected === text;
+      radio.addEventListener("change", () => { state.problem.selected = text; clearError(1); persist(); });
+      label.htmlFor = radio.id;
+      const span = document.createElement("span");
+      span.textContent = text;
+      const del = document.createElement("button");
+      del.type = "button";
+      del.className = "btn-danger-link";
+      del.textContent = "삭제";
+      del.setAttribute("aria-label", `문제 삭제: ${text}`);
+      del.addEventListener("click", (e) => {
+        e.preventDefault();
+        state.problem.candidates.splice(i, 1);
+        if (state.problem.selected === text) state.problem.selected = "";
+        renderProblems();
+        persist();
+      });
+      label.append(radio, span, del);
+      wrap.appendChild(label);
+    });
+    $("#problem-empty").hidden = state.problem.candidates.length > 0;
+  }
+
+  function addProblem() {
+    const input = $("#problem-input");
+    const text = input.value.trim();
+    if (!text) return;
+    if (text.length < 2) { showError(1, "문제를 조금 더 자세히 적어 주세요."); return; }
+    const bad = checkText(text);
+    if (bad) { showError(1, bad); return; }
+    if (state.problem.candidates.length >= LIMITS.problems) { showError(1, `문제는 ${LIMITS.problems}개까지 적을 수 있어요.`); return; }
+    if (state.problem.candidates.includes(text)) { showError(1, "이미 적은 문제예요."); return; }
+    state.problem.candidates.push(text);
+    if (state.problem.candidates.length === 1) state.problem.selected = text;
+    input.value = "";
+    input.focus();
+    renderProblems();
+    clearError(1);
+    setProblemPlaceholder();
+    persist();
+  }
+
+  // ---------- 2. 설계 ----------
+  function renderSteps() {
+    const wrap = $("#step-list");
+    wrap.innerHTML = "";
+    state.design.steps.forEach((s, i) => {
+      const row = document.createElement("div");
+      row.className = "step-item";
+      row.innerHTML = `<span class="order">${i + 1}</span>
+        <span class="text"><span class="cond">${escapeHtml(s.condition)}</span> → ${escapeHtml(s.action)}</span>`;
+      const del = document.createElement("button");
+      del.type = "button";
+      del.className = "btn-danger-link";
+      del.textContent = "삭제";
+      del.setAttribute("aria-label", `단계 삭제: ${s.condition} → ${s.action}`);
+      del.addEventListener("click", () => { state.design.steps.splice(i, 1); renderSteps(); persist(); });
+      row.appendChild(del);
+      wrap.appendChild(row);
+    });
+  }
+
+  function addStep() {
+    const cond = $("#cond-input").value.trim();
+    const act = $("#act-input").value.trim();
+    if (!cond || !act) { showError(2, "조건과 동작을 모두 적어 주세요."); return; }
+    const bad = checkText(cond) || checkText(act);
+    if (bad) { showError(2, bad); return; }
+    if (state.design.steps.length >= LIMITS.steps) { showError(2, `조건 → 동작은 ${LIMITS.steps}개까지 적을 수 있어요.`); return; }
+    state.design.steps.push({ condition: cond, action: act });
+    $("#cond-input").value = "";
+    $("#act-input").value = "";
+    $("#cond-input").focus();
+    renderSteps();
+    clearError(2);
+    setStepPlaceholders();
+    persist();
+  }
+
+  function renderSensors() {
+    const wrap = $("#sensor-list");
+    wrap.innerHTML = "";
+    SENSORS.forEach(({ code, label }) => {
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "chip";
+      chip.textContent = label;
+      chip.setAttribute("aria-pressed", String(state.design.sensors.includes(code)));
+      chip.addEventListener("click", () => {
+        const idx = state.design.sensors.indexOf(code);
+        if (idx >= 0) state.design.sensors.splice(idx, 1);
+        else state.design.sensors.push(code);
+        chip.setAttribute("aria-pressed", String(idx < 0));
+        persist();
+      });
+      wrap.appendChild(chip);
+    });
+  }
+
+  // ---------- 3. 요약 + 저장 ----------
+  function renderSummary() {
+    const d = state.design;
+    const stepsHtml = d.steps.length
+      ? `<ul>${d.steps.map((s) => `<li>${escapeHtml(s.condition)} → ${escapeHtml(s.action)}</li>`).join("")}</ul>`
+      : "<p class='hint'>아직 없어요.</p>";
+    const sensorsHtml = d.sensors.length ? d.sensors.map(sensorLabel).map(escapeHtml).join(", ") : "없음";
+    $("#summary-content").innerHTML = `
+      <div class="summary-item"><span class="k">문제</span><div>${escapeHtml(state.problem.selected || "선택 안 됨")}</div></div>
+      <div class="summary-item"><span class="k">조건 → 동작</span>${stepsHtml}</div>
+      <div class="summary-item"><span class="k">센서 / 부품</span><div>${sensorsHtml}</div></div>`;
+    $("#makecode-url").value = state.makecodeUrl;
+  }
+
+  function readOwner() {
+    state.studentId = $("#student-id").value.trim();
+    state.name = $("#nickname").value.trim();
+    state.owner = (state.studentId ? state.studentId + " " : "") + state.name;
+    state.className = $("#class-name").value.trim();
+    state.makecodeUrl = $("#makecode-url").value.trim();
+    persist();
+  }
+
+  function showDownloadFallback(show) {
+    $("#download-json").hidden = !show;
+    $("#download-hint").hidden = !show;
+  }
+
+  async function saveOnline() {
+    const area = $("#save-status");
+    const btn = $("#next-btn");
+    readOwner();
+    if (!state.className) {
+      renderMessage(area, "반을 선택해 주세요.", "error");
+      return;
+    }
+    if (!state.studentId || !state.name) {
+      renderMessage(area, "학번과 이름을 모두 적어 주세요.", "error");
+      return;
+    }
+    if (!/^\d{5}$/.test(state.studentId)) {
+      renderMessage(area, "학번은 5자리 숫자로 적어 주세요. (예: 10401 = 1학년 4반 1번)", "error");
+      return;
+    }
+    const bad = checkText(state.name);
+    if (bad) { renderMessage(area, bad, "error"); return; }
+    if (STAFF_RE.test(state.name)) {
+      renderMessage(area, "이름에는 '선생님', '관리자' 같은 말을 쓸 수 없어요. 내 이름이나 닉네임을 적어 주세요.", "error");
+      return;
+    }
+    if (state.owner.length > 20) {
+      renderMessage(area, "학번과 이름을 합친 길이가 너무 길어요. 이름을 조금 줄여 주세요.", "error");
+      return;
+    }
+    const wait = SAVE_COOLDOWN_MS - (Date.now() - lastSavedAt);
+    if (lastSavedAt && wait > 0) {
+      renderMessage(area, `방금 저장했어요. ${Math.ceil(wait / 1000)}초 뒤에 다시 저장할 수 있어요.`, "error");
+      return;
+    }
+    if (lastSavedAt && !resaveArmed) {
+      resaveArmed = true;
+      renderMessage(area, "이미 저장했어요. 내용을 고쳤다면 '저장 / 완료'를 한 번 더 누르면 새로 저장돼요.", "error");
+      return;
+    }
+    if (state.makecodeUrl && !MAKECODE_RE.test(state.makecodeUrl)) {
+      renderMessage(area, "메이크코드 링크가 올바르지 않아요. 공유 → 프로젝트 게시로 만든 링크(https://makecode.microbit.org/_…)를 붙여 넣어 주세요.", "error");
+      return;
+    }
+    if (typeof window.saveProject !== "function") {
+      renderMessage(area, "아직 온라인 저장이 연결되지 않았어요. '파일로 저장'을 눌러 주세요.", "error");
+      showDownloadFallback(true);
+      return;
+    }
+    btn.disabled = true;
+    renderMessage(area, "저장하고 있어요… 💾", "loading");
+    try {
+      await window.saveProject(state);
+      lastSavedAt = Date.now();
+      resaveArmed = false;
+      renderMessage(area, "저장되었어요! 수고했어요. 🌱", "ok");
+      showDownloadFallback(false);
+    } catch (err) {
+      const code = (err && err.code) || "";
+      const msg = code === "permission-denied"
+        ? "저장 권한이 없어요. 선생님께 알려 주세요."
+        : code === "unavailable"
+          ? "인터넷 연결을 확인하고 다시 눌러 주세요. (또는 '파일로 저장')"
+          : "저장에 실패했어요. 다시 누르거나 '파일로 저장'을 쓰세요.";
+      renderMessage(area, msg, "error");
+      showDownloadFallback(true);
+      console.error(err);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  function downloadJson() {
+    const area = $("#save-status");
+    readOwner();
+    try {
+      const data = { ...state, savedAt: new Date().toISOString() };
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      const safe = `${state.className}_${state.owner}`.replace(/[^\w가-힣-]/g, "_") || "무순설계";
+      a.href = url;
+      a.download = `${safe}_모의설계.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      renderMessage(area, "파일로 저장했어요. (다운로드 폴더 확인)", "ok");
+    } catch (e) {
+      renderMessage(area, "파일로 저장하지 못했어요. 다른 브라우저로 다시 해 보세요.", "error");
+    }
+  }
+
+  // ---------- 다음 단계 ----------
+  async function handleNext() {
+    const step = state.currentStep;
+    if (step === 1 && !state.problem.selected) { showError(1, "해결할 문제를 하나 골라 주세요."); return; }
+    if (step === 2 && state.design.steps.length === 0) { showError(2, "조건 → 동작을 하나 이상 적어 주세요."); return; }
+    if (step === TOTAL_STEPS) { await saveOnline(); return; }
+    goToStep(step + 1);
+  }
+
+  // ---------- 초기화 ----------
+  function init() {
+    $("#add-problem").addEventListener("click", addProblem);
+    $("#problem-input").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); addProblem(); } });
+    $("#add-step").addEventListener("click", addStep);
+    $("#act-input").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); addStep(); } });
+    $("#download-json").addEventListener("click", downloadJson);
+    $("#next-btn").addEventListener("click", handleNext);
+    $("#prev-btn").addEventListener("click", () => goToStep(state.currentStep - 1));
+    $("#student-id").addEventListener("input", readOwner);
+    $("#nickname").addEventListener("input", readOwner);
+    $("#class-name").addEventListener("change", readOwner);
+    $("#makecode-url").addEventListener("input", readOwner);
+
+    restore();
+    $("#student-id").value = state.studentId;
+    $("#nickname").value = state.name;
+    $("#class-name").value = state.className;
+    setProblemPlaceholder();
+    setStepPlaceholders();
+    renderProblems();
+    renderSteps();
+    renderSensors();
+    goToStep(state.currentStep);
+  }
+  document.addEventListener("DOMContentLoaded", init);
+  </script>
+</body>
+</html>

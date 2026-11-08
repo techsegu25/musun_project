@@ -106,6 +106,7 @@
       </div>
       <button type="button" class="btn btn-secondary" id="reload-btn">새로 고침</button>
       <button type="button" class="btn btn-primary" id="print-btn">PDF로 저장</button>
+      <button type="button" class="btn btn-secondary" id="resume-toggle" title="학생이 '이어서 하기(저장 내용 불러오기)'를 쓸 수 있게 켜고 끕니다">이어하기: 확인 중…</button>
       <span class="count" id="count"></span>
     </div>
 
@@ -186,21 +187,26 @@
   function stepsHtml(r) {
     const steps = (r.design && r.design.steps) || [];
     return steps.length
-      ? `<ul>${steps.map((s) => `<li>${esc(s.condition)} → ${esc(s.action)}</li>`).join("")}</ul>`
+      ? `<ul>${steps.map((s) => `<li>${s.sensor ? "<strong>[" + esc(SENSOR_LABELS[s.sensor] || s.sensor) + "]</strong> " : ""}${esc(s.condition)} → ${esc(s.action)}</li>`).join("")}</ul>`
       : "<span class='none'>없음</span>";
   }
   function sensorsText(r) {
-    const s = (r.design && r.design.sensors) || [];
+    const steps = (r.design && r.design.steps) || [];
+    let s = [...new Set(steps.map((x) => x.sensor).filter(Boolean))];
+    if (!s.length && r.design && r.design.sensors) s = r.design.sensors; // 예전(전체 공통) 데이터 호환
     return s.length ? esc(s.map((x) => SENSOR_LABELS[x] || x).join(", ")) : "<span class='none'>없음</span>";
   }
   function codeLink(r) {
     const url = safeMakecode(r.makecodeUrl);
     return url ? `<a href="${esc(url)}" target="_blank" rel="noopener">${esc(codeId(url))}</a>` : "<span class='none'>없음</span>";
   }
+  function reflectionText(r) {
+    return r.reflection ? esc(r.reflection) : "<span class='none'>없음</span>";
+  }
 
   function renderTable(list) {
     return `<div class="table-wrap"><table>
-      <thead><tr><th>반</th><th>이름</th><th>해결할 문제</th><th>조건 → 동작</th><th>센서 / 부품</th><th>메이크코드</th><th>제출</th></tr></thead>
+      <thead><tr><th>반</th><th>이름</th><th>해결할 문제</th><th>조건 → 동작</th><th>센서 / 부품</th><th>메이크코드</th><th>한 달 돌봄 소감</th><th>제출</th></tr></thead>
       <tbody>${list.map((r) => `<tr>
         <td class="nowrap">${esc(r.className)}</td>
         <td class="nowrap">${esc(r.owner)}</td>
@@ -208,6 +214,7 @@
         <td>${stepsHtml(r)}</td>
         <td>${sensorsText(r)}</td>
         <td>${codeLink(r)}</td>
+        <td>${reflectionText(r)}</td>
         <td class="nowrap">${esc(fmtTime(r.createdAt))}</td>
       </tr>`).join("")}</tbody></table></div>`;
   }
@@ -226,6 +233,7 @@
         <div><span class="k">조건 → 동작</span>${stepsHtml(r)}</div>
         <div><span class="k">센서 / 부품</span> ${sensorsText(r)}</div>
         <div><span class="k">메이크코드</span> ${codeLink(r)}</div>
+        <div><span class="k">한 달 돌봄 소감</span> ${reflectionText(r)}</div>
         ${frame}
       </div>`;
     }).join("")}</div>`;
@@ -269,6 +277,35 @@
     }
   }
 
+  // ---------- 이어하기(학생 불러오기) 허용/차단 토글 ----------
+  let resumeEnabled = false;
+  function renderResumeToggle() {
+    const b = $("#resume-toggle");
+    b.textContent = resumeEnabled ? "이어하기: 허용됨 ✅ (누르면 차단)" : "이어하기: 차단됨 🔒 (누르면 허용)";
+    b.className = "btn " + (resumeEnabled ? "btn-primary" : "btn-secondary");
+  }
+  async function loadResumeState() {
+    try {
+      const snap = await db.collection("settings").doc("assessment").get();
+      resumeEnabled = snap.exists ? !!snap.data().resumeEnabled : false;
+    } catch (e) { resumeEnabled = false; }
+    renderResumeToggle();
+  }
+  async function toggleResume() {
+    const b = $("#resume-toggle");
+    b.disabled = true;
+    try {
+      await db.collection("settings").doc("assessment").set({ resumeEnabled: !resumeEnabled }, { merge: true });
+      resumeEnabled = !resumeEnabled;
+      renderResumeToggle();
+    } catch (e) {
+      console.error(e);
+      showMsg(e && e.code === "permission-denied"
+        ? "이어하기 설정을 바꿀 권한이 없어요. 보안 규칙에 적은 선생님 계정으로 로그인했는지 확인하세요."
+        : "이어하기 설정을 바꾸지 못했어요. 다시 시도해 주세요.", true);
+    } finally { b.disabled = false; }
+  }
+
   function init() {
     if (!window.firebase) { showMsg("Firebase를 불러오지 못했어요. 인터넷 연결을 확인하세요.", true); return; }
     firebase.initializeApp(FIREBASE_CONFIG);
@@ -295,12 +332,13 @@
     $("#view-table").addEventListener("click", () => setView("table"));
     $("#view-cards").addEventListener("click", () => setView("cards"));
     $("#print-btn").addEventListener("click", () => window.print());
+    $("#resume-toggle").addEventListener("click", toggleResume);
 
     auth.onAuthStateChanged((user) => {
       $("#login-btn").hidden = !!user;
       $("#logout-btn").hidden = !user;
       $("#who").textContent = user ? user.email : "";
-      if (user) load();
+      if (user) { load(); loadResumeState(); }
       else { rows = []; $("#toolbar").hidden = true; $("#out").innerHTML = ""; showMsg("선생님 계정으로 로그인하면 학생 제출이 보여요."); }
     });
   }

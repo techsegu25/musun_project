@@ -1,0 +1,60 @@
+rules_version = '2';
+// ============================================================
+// 무순 수행평가 Firestore 보안 규칙 (참고용)
+// Firebase 콘솔 → Firestore Database → 규칙(Rules)에 붙여넣고 "게시" 하세요.
+// ★ 아래 TEACHER_EMAILS 를 선생님 구글 계정으로 바꾸세요.
+//   기존 mock_designs 규칙이 콘솔에 따로 있다면 함께 보존하세요.
+// ============================================================
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isTeacher() {
+      return request.auth != null
+        && request.auth.token.email in [
+             "techsegu25@gmail.com"   // ← 선생님 구글 계정 이메일로 바꾸세요
+           ];
+    }
+
+    // ---- (연습/모의용) 기존 컬렉션 ----
+    match /mock_designs/{docId} {
+      allow read: if isTeacher();
+      allow create: if true;         // 기존 규칙이 더 엄격하면 그대로 두세요
+      allow update, delete: if false;
+    }
+
+    // ---- (실제 수행평가) 최종 제출 ----
+    match /assessment_designs/{docId} {
+      allow read: if isTeacher();
+      allow create: if
+        request.resource.data.owner is string
+        && request.resource.data.owner.size() <= 20
+        && request.resource.data.className is string
+        && request.resource.data.className.size() <= 10
+        && request.resource.data.makecodeUrl is string
+        && request.resource.data.makecodeUrl.size() <= 100
+        && request.resource.data.reflection is string
+        && request.resource.data.reflection.size() <= 300;
+      allow update, delete: if false;
+    }
+
+    // ---- (실제 수행평가) 온라인 임시저장 = 초안 ----
+    //  문서 id = "반_학번"  (예: 1-4_10401)
+    match /assessment_drafts/{docId} {
+      // 학생은 자기 초안을 만들고 덮어쓸 수 있음
+      allow create, update: if
+        request.resource.data.className is string
+        && request.resource.data.studentId is string;
+      // 초안 '읽기(이어서 하기)'는 교사가 허용을 켰을 때만 가능
+      allow read: if
+        exists(/databases/$(database)/documents/settings/assessment)
+        && get(/databases/$(database)/documents/settings/assessment).data.resumeEnabled == true;
+      allow delete: if false;
+    }
+
+    // ---- 교사가 켜고 끄는 '이어하기 허용' 스위치 ----
+    match /settings/assessment {
+      allow read: if true;        // 학생이 허용 여부를 확인(버튼 활성화)
+      allow write: if isTeacher(); // 값 변경은 교사만
+    }
+  }
+}

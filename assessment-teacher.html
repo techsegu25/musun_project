@@ -59,6 +59,15 @@
   a { color: #1a5fb4; word-break: break-all; }
   .none { color: #9aa39e; }
 
+  /* 삭제 버튼 */
+  .del-btn {
+    font: inherit; font-size: 0.85rem; cursor: pointer; padding: 5px 11px; border-radius: 7px;
+    border: 1px solid #e8bdb6; background: #fdf3f1; color: var(--danger); white-space: nowrap;
+  }
+  .del-btn:hover { background: var(--danger); color: #fff; border-color: var(--danger); }
+  .del-btn:disabled { opacity: 0.5; cursor: default; }
+  .card-actions { margin-top: 8px; display: flex; justify-content: flex-end; }
+
   /* 카드 보기 (코드 블록 포함) */
   .cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
   .card { background: #fff; border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; break-inside: avoid; }
@@ -73,7 +82,7 @@
   @media print {
     @page { size: A4 landscape; margin: 10mm; }
     body { background: #fff; font-size: 9pt; }
-    header, .toolbar, .msg { display: none !important; }
+    header, .toolbar, .msg, .del-btn, .card-actions { display: none !important; }
     main { padding: 0; max-width: none; }
     .print-title { display: block; font-size: 12pt; font-weight: 700; margin: 0 0 6px; }
     .table-wrap { border: none; overflow: visible; }
@@ -208,7 +217,7 @@
 
   function renderTable(list) {
     return `<div class="table-wrap"><table>
-      <thead><tr><th>반</th><th>이름</th><th>해결할 문제</th><th>조건 → 동작</th><th>센서 / 부품</th><th>메이크코드</th><th>한 달 돌봄 소감</th><th>제출</th></tr></thead>
+      <thead><tr><th>반</th><th>이름</th><th>해결할 문제</th><th>조건 → 동작</th><th>센서 / 부품</th><th>메이크코드</th><th>한 달 돌봄 소감</th><th>제출</th><th>관리</th></tr></thead>
       <tbody>${list.map((r) => `<tr>
         <td class="nowrap">${esc(r.className)}</td>
         <td class="nowrap">${esc(r.owner)}</td>
@@ -218,6 +227,7 @@
         <td>${codeLink(r)}</td>
         <td>${reflectionText(r)}</td>
         <td class="nowrap">${esc(fmtTime(r.createdAt))}</td>
+        <td class="nowrap"><button type="button" class="del-btn" data-del="${esc(r.id)}">삭제</button></td>
       </tr>`).join("")}</tbody></table></div>`;
   }
 
@@ -237,6 +247,7 @@
         <div><span class="k">메이크코드</span> ${codeLink(r)}</div>
         <div><span class="k">한 달 돌봄 소감</span> ${reflectionText(r)}</div>
         ${frame}
+        <div class="card-actions"><button type="button" class="del-btn" data-del="${esc(r.id)}">삭제</button></div>
       </div>`;
     }).join("")}</div>`;
   }
@@ -308,6 +319,27 @@
     } finally { b.disabled = false; }
   }
 
+  // ---------- 삭제 ----------
+  async function deleteRow(id, btn) {
+    const r = rows.find((x) => x.id === id);
+    const who = r ? `${r.className || ""} · ${r.owner || ""}`.trim() : "이 제출";
+    if (!confirm(`${who} 제출을 영구 삭제할까요?\n이 작업은 되돌릴 수 없습니다.`)) return;
+    if (btn) btn.disabled = true;
+    try {
+      await db.collection(COLLECTION).doc(id).delete();
+      rows = rows.filter((x) => x.id !== id);
+      fillClassFilter();
+      render();
+      showMsg("삭제했어요.");
+    } catch (e) {
+      console.error(e);
+      if (btn) btn.disabled = false;
+      showMsg(e && e.code === "permission-denied"
+        ? "삭제할 권한이 없어요. 보안 규칙에서 선생님 계정의 삭제를 허용하고 규칙을 게시했는지 확인하세요."
+        : "삭제하지 못했어요. 다시 시도해 주세요.", true);
+    }
+  }
+
   function init() {
     if (!window.firebase) { showMsg("Firebase를 불러오지 못했어요. 인터넷 연결을 확인하세요.", true); return; }
     firebase.initializeApp(FIREBASE_CONFIG);
@@ -335,6 +367,10 @@
     $("#view-cards").addEventListener("click", () => setView("cards"));
     $("#print-btn").addEventListener("click", () => window.print());
     $("#resume-toggle").addEventListener("click", toggleResume);
+    $("#out").addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-del]");
+      if (btn) deleteRow(btn.getAttribute("data-del"), btn);
+    });
 
     auth.onAuthStateChanged((user) => {
       $("#login-btn").hidden = !!user;

@@ -109,9 +109,10 @@ service cloud.firestore {
       allow create: if docId.matches('^[A-Za-z0-9]{20}$')
                     && validDesign(request.resource.data);
       // 학생은 다른 사람 설계를 보거나, 고치거나, 지울 수 없음
-      // 선생님 계정만 모아 보기(teacher.html)에서 읽을 수 있음
+      // 선생님 계정만 모아 보기(teacher.html)에서 읽고, 지울 수 있음
       allow read: if isTeacher();
-      allow update, delete: if false;
+      allow update: if false;
+      allow delete: if isTeacher();
     }
 
     // ---------- 무순 실제 수행평가 설계 (최종 제출) ----------
@@ -119,9 +120,10 @@ service cloud.firestore {
       // 자동 생성 문서 번호(20자)로만 저장: 남의 문서 번호를 정해 덮어쓰기 막기
       allow create: if docId.matches('^[A-Za-z0-9]{20}$')
                     && validAssessment(request.resource.data);
-      // 선생님 계정만 모아 보기(assessment-teacher.html)에서 읽을 수 있음
+      // 선생님 계정만 모아 보기(assessment-teacher.html)에서 읽고, 지울 수 있음
       allow read: if isTeacher();
-      allow update, delete: if false;
+      allow update: if false;
+      allow delete: if isTeacher();
     }
 
     // ---------- 온라인 임시저장(초안). 문서 id = "반_학번" (예: 1-4_10401) ----------

@@ -115,6 +115,7 @@
       </div>
       <button type="button" class="btn btn-secondary" id="reload-btn">새로 고침</button>
       <button type="button" class="btn btn-primary" id="print-btn">PDF로 저장</button>
+      <button type="button" class="btn btn-secondary" id="csv-btn">CSV 다운로드</button>
       <button type="button" class="btn btn-secondary" id="resume-toggle" title="학생이 '이어서 하기(저장 내용 불러오기)'를 쓸 수 있게 켜고 끕니다">이어하기: 확인 중…</button>
       <span class="count" id="count"></span>
     </div>
@@ -319,6 +320,55 @@
     } finally { b.disabled = false; }
   }
 
+  // ---------- CSV 다운로드 ----------
+  function csvCell(v) {
+    return '"' + String(v == null ? "" : v).replace(/"/g, '""') + '"';
+  }
+  function fmtFull(ts) {
+    if (!ts) return "";
+    const d = ts.toDate ? ts.toDate() : new Date(ts);
+    const p = (n) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+  }
+  function stepsPlain(r) {
+    const steps = (r.design && r.design.steps) || [];
+    return steps.map((s) => {
+      const t = stepSensorCodes(s).map((x) => SENSOR_LABELS[x] || x).join(", ");
+      return (t ? `[${t}] ` : "") + `${s.condition || ""} → ${s.action || ""}`;
+    }).join("\n");
+  }
+  function sensorsPlain(r) {
+    const steps = (r.design && r.design.steps) || [];
+    let s = [...new Set(steps.flatMap(stepSensorCodes))];
+    if (!s.length && r.design && r.design.sensors) s = r.design.sensors;
+    return s.map((x) => SENSOR_LABELS[x] || x).join(", ");
+  }
+  function downloadCsv() {
+    const list = filtered();
+    if (!list.length) { showMsg("내려받을 데이터가 없어요.", true); return; }
+    const headers = ["반", "이름", "해결할 문제", "조건 → 동작", "센서/부품", "메이크코드", "한 달 돌봄 소감", "제출시각"];
+    const lines = [headers.map(csvCell).join(",")];
+    list.forEach((r) => {
+      lines.push([
+        r.className, r.owner, (r.problem && r.problem.selected) || "",
+        stepsPlain(r), sensorsPlain(r), r.makecodeUrl || "", r.reflection || "", fmtFull(r.createdAt),
+      ].map(csvCell).join(","));
+    });
+    const csv = "﻿" + lines.join("\r\n"); // BOM: 엑셀 한글 깨짐 방지
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const cls = $("#class-filter").value || "전체";
+    const today = new Date().toISOString().slice(0, 10);
+    a.href = url;
+    a.download = `무순수행평가_${cls}_${today}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    showMsg(`${list.length}건을 CSV로 내려받았어요.`);
+  }
+
   // ---------- 삭제 ----------
   async function deleteRow(id, btn) {
     const r = rows.find((x) => x.id === id);
@@ -366,6 +416,7 @@
     $("#view-table").addEventListener("click", () => setView("table"));
     $("#view-cards").addEventListener("click", () => setView("cards"));
     $("#print-btn").addEventListener("click", () => window.print());
+    $("#csv-btn").addEventListener("click", downloadCsv);
     $("#resume-toggle").addEventListener("click", toggleResume);
     $("#out").addEventListener("click", (e) => {
       const btn = e.target.closest("[data-del]");

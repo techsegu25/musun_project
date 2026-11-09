@@ -184,15 +184,17 @@
     $("#out").innerHTML = view === "table" ? renderTable(list) : renderCards(list);
   }
 
+  // 새 구조는 배열 sensors, 옛 저장본은 단일 sensor 지원
+  const stepSensorCodes = (s) => Array.isArray(s.sensors) ? s.sensors : (s.sensor ? [s.sensor] : []);
   function stepsHtml(r) {
     const steps = (r.design && r.design.steps) || [];
     return steps.length
-      ? `<ul>${steps.map((s) => `<li>${s.sensor ? "<strong>[" + esc(SENSOR_LABELS[s.sensor] || s.sensor) + "]</strong> " : ""}${esc(s.condition)} → ${esc(s.action)}</li>`).join("")}</ul>`
+      ? `<ul>${steps.map((s) => { const t = stepSensorCodes(s).map((x) => esc(SENSOR_LABELS[x] || x)).join(", "); return `<li>${t ? "<strong>[" + t + "]</strong> " : ""}${esc(s.condition)} → ${esc(s.action)}</li>`; }).join("")}</ul>`
       : "<span class='none'>없음</span>";
   }
   function sensorsText(r) {
     const steps = (r.design && r.design.steps) || [];
-    let s = [...new Set(steps.map((x) => x.sensor).filter(Boolean))];
+    let s = [...new Set(steps.flatMap(stepSensorCodes))];
     if (!s.length && r.design && r.design.sensors) s = r.design.sensors; // 예전(전체 공통) 데이터 호환
     return s.length ? esc(s.map((x) => SENSOR_LABELS[x] || x).join(", ")) : "<span class='none'>없음</span>";
   }

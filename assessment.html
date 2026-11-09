@@ -80,8 +80,19 @@
 
   .row { display: flex; gap: 8px; align-items: flex-start; margin-top: 8px; flex-wrap: wrap; }
   .row input { flex: 1 1 200px; }
+  .row-steps { display: flex; gap: 8px; align-items: flex-start; margin-top: 8px; flex-wrap: wrap; }
   .row-steps input { flex: 1 1 160px; }
-  .row-steps select { flex: 1 1 130px; }
+
+  /* 센서 체크박스 선택 (각 동작별) */
+  .sensor-field { flex: 1 1 100%; display: flex; flex-direction: column; gap: 6px; }
+  .sensor-field-label { font-weight: 600; color: var(--primary-dark); font-size: 0.92rem; }
+  .sensor-checks { display: flex; flex-wrap: wrap; gap: 8px; }
+  .sensor-checks label {
+    display: inline-flex; align-items: center; gap: 6px; padding: 7px 13px;
+    border: 1px solid var(--border); border-radius: 999px; background: #fff; cursor: pointer; user-select: none;
+  }
+  .sensor-checks label:has(input:checked) { background: var(--primary); color: #fff; border-color: var(--primary); }
+  .sensor-checks input { width: 16px; height: 16px; flex: none; margin: 0; cursor: pointer; accent-color: var(--primary); }
 
   /* 버튼 */
   .btn {
@@ -229,10 +240,13 @@
 
       <fieldset class="card">
         <legend>조건 → 동작</legend>
-        <p class="hint">각 규칙마다 <b>사용할 센서/부품</b>을 고르고, "언제(조건) → 무엇을 한다(동작)"로 <b>2가지 이상</b> 적어 보세요. 토양습도 말고도 흔들림·밝기·온도·버튼 등 다양한 조건을 생각해 보세요.</p>
+        <p class="hint">각 동작마다 <b>사용할 센서/부품을 체크박스로 골라</b>(여러 개 선택 가능), "언제(조건) → 무엇을 한다(동작)"로 <b>2가지 이상</b> 적어 보세요. 토양습도 말고도 흔들림·밝기·온도·버튼 등 다양한 조건을 생각해 보세요.</p>
         <div id="step-list" class="step-list"></div>
-        <div class="row row-steps">
-          <select id="sensor-input" aria-label="사용할 센서/부품"></select>
+        <div class="row-steps">
+          <div class="sensor-field">
+            <span class="sensor-field-label">사용할 센서/부품 (여러 개 선택 가능)</span>
+            <div id="sensor-input" class="sensor-checks" role="group" aria-label="사용할 센서/부품 (여러 개 선택 가능)"></div>
+          </div>
           <input type="text" id="cond-input" maxlength="60" placeholder="조건 (예: 토양습도가 439보다 작으면)" />
           <input type="text" id="act-input" maxlength="60" placeholder="동작 (예: 슬픈 표정과 소리로 알린다)" />
           <button type="button" id="add-step" class="btn btn-secondary">+ 추가</button>
@@ -387,6 +401,9 @@
     { code: "speaker", label: "스피커" },
   ];
   const sensorLabel = (code) => (SENSORS.find((s) => s.code === code) || { label: code }).label;
+  // 단계의 센서 목록 (새 구조는 배열 sensors, 옛 저장본은 단일 sensor 지원)
+  const stepSensors = (s) => Array.isArray(s.sensors) ? s.sensors : (s.sensor ? [s.sensor] : []);
+  const stepSensorText = (s) => stepSensors(s).map(sensorLabel).map(escapeHtml).join(", ");
 
   // 예시를 다양하게 돌아가며 보여줘요 (토양습도만 쓰지 않도록)
   const PROBLEM_EXAMPLES = [
@@ -611,8 +628,9 @@
     state.design.steps.forEach((s, i) => {
       const row = document.createElement("div");
       row.className = "step-item";
+      const sensorsTxt = stepSensorText(s);
       row.innerHTML = `<span class="order">${i + 1}</span>
-        <span class="text">${s.sensor ? `<span class="cond">[${escapeHtml(sensorLabel(s.sensor))}]</span> ` : ""}<span class="cond">${escapeHtml(s.condition)}</span> → ${escapeHtml(s.action)}</span>`;
+        <span class="text">${sensorsTxt ? `<span class="cond">[${sensorsTxt}]</span> ` : ""}<span class="cond">${escapeHtml(s.condition)}</span> → ${escapeHtml(s.action)}</span>`;
       const del = document.createElement("button");
       del.type = "button";
       del.className = "btn-danger-link";
@@ -625,16 +643,16 @@
   }
 
   function addStep() {
-    const sensor = $("#sensor-input").value;
+    const sensors = $$('#sensor-input input[type="checkbox"]:checked').map((el) => el.value);
     const cond = $("#cond-input").value.trim();
     const act = $("#act-input").value.trim();
-    if (!sensor) { showError(2, "이 규칙에 사용할 센서/부품을 골라 주세요."); return; }
+    if (sensors.length === 0) { showError(2, "이 동작에 사용할 센서/부품을 하나 이상 골라 주세요."); return; }
     if (!cond || !act) { showError(2, "조건과 동작을 모두 적어 주세요."); return; }
     const bad = checkText(cond) || checkText(act);
     if (bad) { showError(2, bad); return; }
     if (state.design.steps.length >= LIMITS.steps) { showError(2, `조건 → 동작은 ${LIMITS.steps}개까지 적을 수 있어요.`); return; }
-    state.design.steps.push({ condition: cond, action: act, sensor: sensor });
-    $("#sensor-input").value = "";
+    state.design.steps.push({ condition: cond, action: act, sensors: sensors });
+    $$('#sensor-input input[type="checkbox"]').forEach((el) => { el.checked = false; });
     $("#cond-input").value = "";
     $("#act-input").value = "";
     $("#cond-input").focus();
@@ -645,19 +663,20 @@
   }
 
   function fillSensorOptions() {
-    const sel = $("#sensor-input");
-    if (!sel) return;
-    sel.innerHTML = `<option value="">센서/부품 선택</option>` +
-      SENSORS.map((s) => `<option value="${s.code}">${s.label}</option>`).join("");
+    const box = $("#sensor-input");
+    if (!box) return;
+    box.innerHTML = SENSORS.map((s) =>
+      `<label><input type="checkbox" value="${s.code}" /><span>${escapeHtml(s.label)}</span></label>`
+    ).join("");
   }
 
   // ---------- 3. 요약 + 저장 ----------
   function renderSummary() {
     const d = state.design;
     const stepsHtml = d.steps.length
-      ? `<ul>${d.steps.map((s) => `<li><strong>[${escapeHtml(sensorLabel(s.sensor))}]</strong> ${escapeHtml(s.condition)} → ${escapeHtml(s.action)}</li>`).join("")}</ul>`
+      ? `<ul>${d.steps.map((s) => { const t = stepSensorText(s); return `<li>${t ? `<strong>[${t}]</strong> ` : ""}${escapeHtml(s.condition)} → ${escapeHtml(s.action)}</li>`; }).join("")}</ul>`
       : "<p class='hint'>아직 없어요.</p>";
-    const usedSensors = [...new Set(d.steps.map((s) => s.sensor).filter(Boolean))];
+    const usedSensors = [...new Set(d.steps.flatMap(stepSensors))];
     const sensorsHtml = usedSensors.length ? usedSensors.map(sensorLabel).map(escapeHtml).join(", ") : "없음";
     $("#summary-content").innerHTML = `
       <div class="summary-item"><span class="k">문제</span><div>${escapeHtml(state.problem.selected || "선택 안 됨")}</div></div>

@@ -322,7 +322,9 @@
 
   // ---------- CSV 다운로드 ----------
   function csvCell(v) {
-    return '"' + String(v == null ? "" : v).replace(/"/g, '""') + '"';
+    // 셀 안 줄바꿈(학생이 Enter 친 소감 등)은 모두 \r\n으로 통일 → 엑셀이 '셀 안 줄바꿈'으로 처리(행이 끊기지 않음)
+    const s = String(v == null ? "" : v).replace(/\r\n|\r|\n/g, "\r\n");
+    return '"' + s.replace(/"/g, '""') + '"';
   }
   function fmtFull(ts) {
     if (!ts) return "";

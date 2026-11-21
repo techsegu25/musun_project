@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>무순 수행평가 작품 전시 (공개)</title>
+  <!--
+    공개 전시용: 로그인 없이 누구나 학생 작품을 감상합니다.
+    - 이름 등 개인정보는 화면에서 '이○선'처럼 가립니다.
+    - Firestore 보안 규칙에서 assessment_designs 공개 읽기가 열려 있어야 합니다.
+    - 교사용(assessment-teacher.html)은 그대로 로그인 후 전체 이름을 봅니다.
+  -->
+  <style>
+  :root {
+    --bg: #f4faf2; --surface: #fff; --text: #1f2d1a; --muted: #5d6b55;
+    --primary: #2e7d32; --primary-dark: #1b5e20; --primary-light: #e3f2e1;
+    --border: #cfe0ca; --danger: #c0392b;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body {
+    margin: 0; font-family: "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+    background: var(--bg); color: var(--text); font-size: 15px; line-height: 1.5;
+  }
+  header {
+    background: var(--primary); color: #fff; padding: 12px 16px;
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  }
+  header h1 { margin: 0; font-size: 1.2rem; flex: 1 1 auto; }
+  .sub { font-size: 0.9rem; opacity: 0.92; flex-basis: 100%; }
+  .btn {
+    padding: 8px 14px; border: none; border-radius: 8px; font: inherit; font-weight: 600; cursor: pointer;
+  }
+  .btn-primary { background: var(--primary); color: #fff; }
+  .btn-secondary { background: var(--primary-light); color: var(--primary-dark); }
+  .btn:focus-visible, select:focus-visible { outline: 3px solid #f2b705; outline-offset: 2px; }
+
+  main { padding: 16px; max-width: 1400px; margin: 0 auto; }
+  .toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+  .toolbar label { font-weight: 600; }
+  select { font: inherit; padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; background: #fff; }
+  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .seg button { border: none; background: #fff; padding: 6px 12px; font: inherit; cursor: pointer; }
+  .seg button[aria-pressed="true"] { background: var(--primary); color: #fff; font-weight: 600; }
+  .count { color: var(--muted); margin-left: auto; }
+
+  .msg { padding: 12px 14px; border-radius: 8px; background: #fff; border: 1px solid var(--border); margin-bottom: 12px; }
+  .msg.is-error { color: var(--danger); background: #fdf3f1; border-color: #e8bdb6; }
+
+  .print-title { display: none; }
+
+  /* 표 보기 */
+  .table-wrap { overflow-x: auto; background: #fff; border: 1px solid var(--border); border-radius: 10px; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.9rem; }
+  th, td { border-bottom: 1px solid #e4ece1; padding: 6px 8px; text-align: left; vertical-align: top; }
+  th { background: var(--primary-light); color: var(--primary-dark); position: sticky; top: 0; white-space: nowrap; }
+  td ul { margin: 0; padding-left: 16px; }
+  td.nowrap { white-space: nowrap; }
+  a { color: #1a5fb4; word-break: break-all; }
+  .none { color: #9aa39e; }
+  .masked { letter-spacing: 0.05em; }
+
+  /* 카드 보기 (코드 블록 포함) */
+  .cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .card { background: #fff; border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; break-inside: avoid; }
+  .card h3 { margin: 0 0 6px; font-size: 1rem; }
+  .card .k { font-weight: 600; color: var(--primary-dark); }
+  .card ul { margin: 2px 0 6px; padding-left: 18px; }
+  .code-frame { width: 100%; height: 300px; border: 1px solid var(--border); border-radius: 8px; margin-top: 6px; background: #fafafa; }
+
+  @media (max-width: 800px) { .cards { grid-template-columns: 1fr; } }
+
+  /* 인쇄 / PDF */
+  @media print {
+    @page { size: A4 landscape; margin: 10mm; }
+    body { background: #fff; font-size: 9pt; }
+    header, .toolbar, .msg { display: none !important; }
+    main { padding: 0; max-width: none; }
+    .print-title { display: block; font-size: 12pt; font-weight: 700; margin: 0 0 6px; }
+    .table-wrap { border: none; overflow: visible; }
+    table { font-size: 8.5pt; }
+    th { position: static; }
+    tr { break-inside: avoid; }
+    a { color: #000; }
+    .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+    .code-frame { height: 240px; }
+  }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>🌱 무순 수행평가 작품 전시</h1>
+    <span class="sub">학생들이 설계한 스마트 텃밭 AI 에이전트 작품입니다. (개인정보 보호를 위해 이름은 <strong>이○선</strong>처럼 가렸습니다)</span>
+  </header>
+
+  <main>
+    <div class="msg" id="msg">작품을 불러오는 중…</div>
+
+    <div class="toolbar" id="toolbar" hidden>
+      <label for="class-filter">반</label>
+      <select id="class-filter"><option value="">전체</option></select>
+      <div class="seg" role="group" aria-label="보기 방식">
+        <button type="button" id="view-cards" aria-pressed="true">카드 + 코드</button>
+        <button type="button" id="view-table" aria-pressed="false">표 (한 장)</button>
+      </div>
+      <button type="button" class="btn btn-secondary" id="reload-btn">새로 고침</button>
+      <button type="button" class="btn btn-primary" id="print-btn">인쇄 / PDF</button>
+      <span class="count" id="count"></span>
+    </div>
+
+    <p class="print-title" id="print-title"></p>
+    <div id="out"></div>
+  </main>
+
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <script>
+  // 학생 앱과 같은 Firebase 설정 (읽기 전용으로만 사용)
+  const FIREBASE_CONFIG = {
+    apiKey: "AIzaSyAVdx3F31F2gG7PgU_TyX8E426RFTzjdWQ",
+    authDomain: "digit-project-710a6.firebaseapp.com",
+    projectId: "digit-project-710a6",
+    storageBucket: "digit-project-710a6.firebasestorage.app",
+    messagingSenderId: "167116197442",
+    appId: "1:167116197442:web:f2e2da9b25b2ef5ec027db",
+  };
+  const COLLECTION = "assessment_designs";
+
+  const SENSOR_LABELS = {
+    soilMoisture: "토양습도", light: "조도", temperature: "온도", led: "LED",
+    speaker: "스피커", servo: "서보모터", camera: "카메라(AI)",
+  };
+  const MAKECODE_RE = /^https:\/\/makecode\.microbit\.org\/(_[A-Za-z0-9]{6,20}|S[0-9]{5}-[0-9]{5}-[0-9]{5}-[0-9]{5})$/;
+
+  const $ = (s) => document.querySelector(s);
+  let rows = [];
+  let view = "cards";
+
+  function esc(str) {
+    return String(str == null ? "" : str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  }
+
+  // 이름 가리기: 이진선 → 이○선, 김수 → 김○, 남궁민수 → 남○○수
+  function maskName(name) {
+    const s = String(name == null ? "" : name).trim();
+    if (!s) return "";
+    const chars = [...s];
+    if (chars.length === 1) return "○";
+    if (chars.length === 2) return chars[0] + "○";
+    return chars[0] + "○".repeat(chars.length - 2) + chars[chars.length - 1];
+  }
+
+  function showMsg(text, isError) {
+    const m = $("#msg");
+    m.textContent = text;
+    m.className = "msg" + (isError ? " is-error" : "");
+    m.hidden = !text;
+  }
+  function fmtTime(ts) {
+    if (!ts) return "";
+    const d = ts.toDate ? ts.toDate() : new Date(ts);
+    const p = (n) => String(n).padStart(2, "0");
+    return `${d.getMonth() + 1}/${d.getDate()} ${p(d.getHours())}:${p(d.getMinutes())}`;
+  }
+  function tsMillis(ts) {
+    if (!ts) return 0;
+    if (typeof ts.toMillis === "function") return ts.toMillis();
+    if (typeof ts.seconds === "number") return ts.seconds * 1000;
+    const d = new Date(ts);
+    return isNaN(d.getTime()) ? 0 : d.getTime();
+  }
+  function safeMakecode(url) {
+    return url && MAKECODE_RE.test(url) ? url : "";
+  }
+  function codeId(url) {
+    return url.replace("https://makecode.microbit.org/", "");
+  }
+
+  // ---------- 그리기 ----------
+  function filtered() {
+    const c = $("#class-filter").value;
+    return c ? rows.filter((r) => r.className === c) : rows;
+  }
+
+  function render() {
+    const list = filtered();
+    const c = $("#class-filter").value;
+    $("#count").textContent = `${list.length}건`;
+    $("#print-title").textContent = `무순 관리 에이전트 수행평가 작품 — ${c || "전체"} (${list.length}건, ${new Date().toLocaleDateString("ko-KR")})`;
+    if (!list.length) { $("#out").innerHTML = "<p class='none'>아직 전시된 작품이 없어요.</p>"; return; }
+    $("#out").innerHTML = view === "table" ? renderTable(list) : renderCards(list);
+  }
+
+  function stepsHtml(r) {
+    const steps = (r.design && r.design.steps) || [];
+    return steps.length
+      ? `<ul>${steps.map((s) => `<li>${s.sensor ? "<strong>[" + esc(SENSOR_LABELS[s.sensor] || s.sensor) + "]</strong> " : ""}${esc(s.condition)} → ${esc(s.action)}</li>`).join("")}</ul>`
+      : "<span class='none'>없음</span>";
+  }
+  function sensorsText(r) {
+    const steps = (r.design && r.design.steps) || [];
+    let s = [...new Set(steps.map((x) => x.sensor).filter(Boolean))];
+    if (!s.length && r.design && r.design.sensors) s = r.design.sensors; // 예전(전체 공통) 데이터 호환
+    return s.length ? esc(s.map((x) => SENSOR_LABELS[x] || x).join(", ")) : "<span class='none'>없음</span>";
+  }
+  function codeLink(r) {
+    const url = safeMakecode(r.makecodeUrl);
+    return url ? `<a href="${esc(url)}" target="_blank" rel="noopener">${esc(codeId(url))}</a>` : "<span class='none'>없음</span>";
+  }
+  function reflectionText(r) {
+    return r.reflection ? esc(r.reflection) : "<span class='none'>없음</span>";
+  }
+  function maskedName(r) {
+    return `<span class="masked">${esc(maskName(r.owner))}</span>`;
+  }
+
+  function renderTable(list) {
+    return `<div class="table-wrap"><table>
+      <thead><tr><th>반</th><th>이름</th><th>해결할 문제</th><th>조건 → 동작</th><th>센서 / 부품</th><th>메이크코드</th><th>한 달 돌봄 소감</th><th>제출</th></tr></thead>
+      <tbody>${list.map((r) => `<tr>
+        <td class="nowrap">${esc(r.className)}</td>
+        <td class="nowrap">${maskedName(r)}</td>
+        <td>${esc(r.problem && r.problem.selected)}</td>
+        <td>${stepsHtml(r)}</td>
+        <td>${sensorsText(r)}</td>
+        <td>${codeLink(r)}</td>
+        <td>${reflectionText(r)}</td>
+        <td class="nowrap">${esc(fmtTime(r.createdAt))}</td>
+      </tr>`).join("")}</tbody></table></div>`;
+  }
+
+  function renderCards(list) {
+    return `<div class="cards">${list.map((r) => {
+      const url = safeMakecode(r.makecodeUrl);
+      const frame = url
+        ? `<iframe class="code-frame" loading="lazy" title="메이크코드 블록"
+             src="https://makecode.microbit.org/---codeembed#pub:${esc(codeId(url))}"
+             sandbox="allow-popups allow-forms allow-scripts allow-same-origin"></iframe>`
+        : "<p class='none'>메이크코드 링크 없음</p>";
+      return `<div class="card">
+        <h3>${esc(r.className)} · ${maskedName(r)} <span class="none" style="font-weight:400">${esc(fmtTime(r.createdAt))}</span></h3>
+        <div><span class="k">문제</span> ${esc(r.problem && r.problem.selected)}</div>
+        <div><span class="k">조건 → 동작</span>${stepsHtml(r)}</div>
+        <div><span class="k">센서 / 부품</span> ${sensorsText(r)}</div>
+        <div><span class="k">메이크코드</span> ${codeLink(r)}</div>
+        <div><span class="k">한 달 돌봄 소감</span> ${reflectionText(r)}</div>
+        ${frame}
+      </div>`;
+    }).join("")}</div>`;
+  }
+
+  function fillClassFilter() {
+    const sel = $("#class-filter");
+    const keep = sel.value;
+    const classes = [...new Set(rows.map((r) => r.className).filter(Boolean))].sort((a, b) => a.localeCompare(b, "ko", { numeric: true }));
+    sel.innerHTML = `<option value="">전체</option>` + classes.map((c) => `<option>${esc(c)}</option>`).join("");
+    if (classes.includes(keep)) sel.value = keep;
+  }
+
+  function setView(v) {
+    view = v;
+    $("#view-table").setAttribute("aria-pressed", String(v === "table"));
+    $("#view-cards").setAttribute("aria-pressed", String(v === "cards"));
+    render();
+  }
+
+  // ---------- Firebase (읽기 전용, 로그인 없음) ----------
+  let db;
+  async function load() {
+    showMsg("작품을 불러오는 중…");
+    try {
+      const snap = await db.collection(COLLECTION).orderBy("createdAt", "desc").get();
+      rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      rows.sort((a, b) => tsMillis(b.createdAt) - tsMillis(a.createdAt));
+      fillClassFilter();
+      showMsg("");
+      $("#toolbar").hidden = false;
+      render();
+    } catch (e) {
+      console.error(e);
+      $("#toolbar").hidden = true;
+      $("#out").innerHTML = "";
+      showMsg(e && e.code === "permission-denied"
+        ? "작품을 볼 권한이 없어요. 공개 읽기(Firestore 보안 규칙)가 열려 있는지 확인하세요."
+        : "작품을 불러오지 못했어요. 인터넷 연결을 확인하고 '새로 고침'을 눌러 주세요.", true);
+    }
+  }
+
+  function init() {
+    if (!window.firebase) { showMsg("Firebase를 불러오지 못했어요. 인터넷 연결을 확인하세요.", true); return; }
+    firebase.initializeApp(FIREBASE_CONFIG);
+    db = firebase.firestore();
+
+    $("#reload-btn").addEventListener("click", load);
+    $("#class-filter").addEventListener("change", render);
+    $("#view-table").addEventListener("click", () => setView("table"));
+    $("#view-cards").addEventListener("click", () => setView("cards"));
+    $("#print-btn").addEventListener("click", () => window.print());
+
+    load();
+  }
+  document.addEventListener("DOMContentLoaded", init);
+  </script>
+</body>
+</html>

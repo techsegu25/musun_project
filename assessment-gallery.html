@@ -7,6 +7,8 @@
   <!--
     공개 전시용: 로그인 없이 누구나 학생 작품을 감상합니다.
     - 이름 등 개인정보는 화면에서 '이○선'처럼 가립니다.
+    - MakeCode 프로젝트 이름(실명이 들어갈 수 있음)은 링크로 노출하지 않고,
+      프로젝트 이름이 표시되지 않는 코드 블록 보기(codeembed)만 보여줍니다.
     - Firestore 보안 규칙에서 assessment_designs 공개 읽기가 열려 있어야 합니다.
     - 교사용(assessment-teacher.html)은 그대로 로그인 후 전체 이름을 봅니다.
   -->
@@ -192,21 +194,19 @@
     $("#out").innerHTML = view === "table" ? renderTable(list) : renderCards(list);
   }
 
+  // 새 구조는 배열 sensors, 옛 저장본은 단일 sensor 지원
+  const stepSensorCodes = (s) => Array.isArray(s.sensors) ? s.sensors : (s.sensor ? [s.sensor] : []);
   function stepsHtml(r) {
     const steps = (r.design && r.design.steps) || [];
     return steps.length
-      ? `<ul>${steps.map((s) => `<li>${s.sensor ? "<strong>[" + esc(SENSOR_LABELS[s.sensor] || s.sensor) + "]</strong> " : ""}${esc(s.condition)} → ${esc(s.action)}</li>`).join("")}</ul>`
+      ? `<ul>${steps.map((s) => { const t = stepSensorCodes(s).map((x) => esc(SENSOR_LABELS[x] || x)).join(", "); return `<li>${t ? "<strong>[" + t + "]</strong> " : ""}${esc(s.condition)} → ${esc(s.action)}</li>`; }).join("")}</ul>`
       : "<span class='none'>없음</span>";
   }
   function sensorsText(r) {
     const steps = (r.design && r.design.steps) || [];
-    let s = [...new Set(steps.map((x) => x.sensor).filter(Boolean))];
+    let s = [...new Set(steps.flatMap(stepSensorCodes))];
     if (!s.length && r.design && r.design.sensors) s = r.design.sensors; // 예전(전체 공통) 데이터 호환
     return s.length ? esc(s.map((x) => SENSOR_LABELS[x] || x).join(", ")) : "<span class='none'>없음</span>";
-  }
-  function codeLink(r) {
-    const url = safeMakecode(r.makecodeUrl);
-    return url ? `<a href="${esc(url)}" target="_blank" rel="noopener">${esc(codeId(url))}</a>` : "<span class='none'>없음</span>";
   }
   function reflectionText(r) {
     return r.reflection ? esc(r.reflection) : "<span class='none'>없음</span>";
@@ -217,14 +217,13 @@
 
   function renderTable(list) {
     return `<div class="table-wrap"><table>
-      <thead><tr><th>반</th><th>이름</th><th>해결할 문제</th><th>조건 → 동작</th><th>센서 / 부품</th><th>메이크코드</th><th>한 달 돌봄 소감</th><th>제출</th></tr></thead>
+      <thead><tr><th>반</th><th>이름</th><th>해결할 문제</th><th>조건 → 동작</th><th>센서 / 부품</th><th>한 달 돌봄 소감</th><th>제출</th></tr></thead>
       <tbody>${list.map((r) => `<tr>
         <td class="nowrap">${esc(r.className)}</td>
         <td class="nowrap">${maskedName(r)}</td>
         <td>${esc(r.problem && r.problem.selected)}</td>
         <td>${stepsHtml(r)}</td>
         <td>${sensorsText(r)}</td>
-        <td>${codeLink(r)}</td>
         <td>${reflectionText(r)}</td>
         <td class="nowrap">${esc(fmtTime(r.createdAt))}</td>
       </tr>`).join("")}</tbody></table></div>`;
@@ -236,14 +235,13 @@
       const frame = url
         ? `<iframe class="code-frame" loading="lazy" title="메이크코드 블록"
              src="https://makecode.microbit.org/---codeembed#pub:${esc(codeId(url))}"
-             sandbox="allow-popups allow-forms allow-scripts allow-same-origin"></iframe>`
-        : "<p class='none'>메이크코드 링크 없음</p>";
+             sandbox="allow-scripts allow-same-origin"></iframe>`
+        : "<p class='none'>코드 없음</p>";
       return `<div class="card">
         <h3>${esc(r.className)} · ${maskedName(r)} <span class="none" style="font-weight:400">${esc(fmtTime(r.createdAt))}</span></h3>
         <div><span class="k">문제</span> ${esc(r.problem && r.problem.selected)}</div>
         <div><span class="k">조건 → 동작</span>${stepsHtml(r)}</div>
         <div><span class="k">센서 / 부품</span> ${sensorsText(r)}</div>
-        <div><span class="k">메이크코드</span> ${codeLink(r)}</div>
         <div><span class="k">한 달 돌봄 소감</span> ${reflectionText(r)}</div>
         ${frame}
       </div>`;
